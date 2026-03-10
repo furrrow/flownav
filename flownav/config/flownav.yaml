@@ -1,10 +1,10 @@
 project_name: flownav
-entity: <YOUR ENTITY>
+entity: JAn
 run_name: flownav
 
 # training setup
 use_wandb: False # set to false if you don't want to log to wandb
-train: True
+train: False
 batch_size: 512
 eval_batch_size: 512
 epochs: 30
@@ -44,7 +44,7 @@ depth:
   pool_dim: 64
   out_dim: 
     vits: 384
-  weights_path: <DEPTH_ANYTHING_WEIGHTS_PATH>
+  weights_path: /home/jim/Projects/prune/external/flownav/weights/depth_anything_v2_vits.pth
 
 # mask 
 goal_mask_prob: 0.5
