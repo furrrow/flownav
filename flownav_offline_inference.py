@@ -16,7 +16,8 @@ import argparse
 import torchdiffeq
 from pathlib import Path
 # Custom Imports
-from flownav.training.utils import get_action, plot_trajs_and_points
+from flownav.training.utils import get_action
+from flownav.visualizing.plot import plot_trajs_and_points
 from deployment.src.utils_offline import (to_numpy, transform_images, load_model,
                                           load_calibration, overlay_path)
 from deployment.src.utils_offline import RGB_color_dict as color_dict
