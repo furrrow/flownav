@@ -2,22 +2,13 @@ import argparse
 import os
 import time
 
-import click
 import numpy as np
 import torch
 import matplotlib
 import matplotlib.pyplot as plt
+from matplotlib.gridspec import GridSpec
 matplotlib.use("TkAgg")
 import yaml
-from diffusion_policy.model.diffusion.conditional_unet1d import ConditionalUnet1D
-from torch.optim import AdamW
-from torch.utils.data import ConcatDataset, DataLoader
-from torchvision import transforms
-from flownav.data.vint_dataset import ViNT_Dataset
-from flownav.models.nomad import DenseNetwork, NoMaD
-from flownav.models.nomad_vint import NoMaD_ViNT, replace_bn_with_gn
-from flownav.training.loop import main_loop
-from warmup_scheduler import GradualWarmupScheduler
 
 import pickle
 from PIL import Image as PILImage
@@ -26,16 +17,19 @@ import torchdiffeq
 from pathlib import Path
 # Custom Imports
 from flownav.training.utils import get_action, plot_trajs_and_points
-from deployment.src.utils_offline import to_numpy, transform_images, load_model
+from deployment.src.utils_offline import (to_numpy, transform_images, load_model,
+                                          load_calibration, overlay_path)
+from deployment.src.utils_offline import RGB_color_dict as color_dict
 """
 offline_inference.py
 custom inference script to test out flownav,
 a combination of code from train.py and navigate.py
-
 """
+
 # CONSTANTS
-TOPOMAP_IMAGES_DIR = "./deployment/topomaps/images"
-ROBOT_CONFIG_PATH ="./deployment/config/ghost.yaml"
+TOPOMAP_IMAGES_DIR = "/home/jim/Projects/prune/deployment/topomaps/images"
+CAMERA_MATRIX_DIR = "/home/jim/Projects/prune/deployment/camera_matrix.json"
+ROBOT_CONFIG_PATH ="/home/jim/Projects/prune/deployment/config/ghost.yaml"
 MODEL_CONFIG_PATH = "./deployment/config/models.yaml"
 with open(ROBOT_CONFIG_PATH, "r") as f:
     robot_config = yaml.safe_load(f)
@@ -107,6 +101,8 @@ def main(config: dict) -> None:
     #     self.context_queue.pop(0)
     #     self.context_queue.append(self.obs_img)
 
+    cam_matrix, dist_coeffs, T_base_from_cam = load_calibration(CAMERA_MATRIX_DIR)
+    T_cam_from_base = np.linalg.inv(T_base_from_cam)
     # run_navigation_loop, once.
     chosen_waypoint = np.zeros(4)
     obs_images = transform_images(context_queue, model_params["image_size"], center_crop=False)
@@ -198,7 +194,12 @@ def main(config: dict) -> None:
         chosen_waypoint = current_action[args.waypoint]
 
     # plot distribution:
-    fig, ax = plt.subplots(1, 3, figsize=(12, 4))
+    fig = plt.figure(figsize=(12, 8))
+    gs = GridSpec(2, 3, figure=fig)
+    ax00 = fig.add_subplot(gs[0, 0])
+    ax01 = fig.add_subplot(gs[1, 0])
+    ax11 = fig.add_subplot(gs[:, 1:])
+
     fig.suptitle("green goal, red explore, magenta best_path")
     uc_actions = list(uc_actions)
     gc_actions = list(gc_actions)
@@ -220,7 +221,7 @@ def main(config: dict) -> None:
     point_colors = ["green", "red"]
     point_alphas = [1.0, 1.0]
     plot_trajs_and_points(
-        ax=ax[0],
+        ax=ax00,
         list_trajs=traj_list,
         list_points=point_list,
         traj_colors=traj_colors,
@@ -235,13 +236,14 @@ def main(config: dict) -> None:
     goal_image = np.array(topomap[-1])
     # obs_image = np.moveaxis(obs_image, 0, -1)
     # goal_image = np.moveaxis(goal_image, 0, -1)
-    ax[1].imshow(obs_image)
-    ax[2].imshow(goal_image)
-    ax[0].set_title("action predictions")
-    ax[1].set_title("observation")
-    ax[2].set_title(
-        f"goal"
-    )
+    obs_image = overlay_path(np.array(gc_actions[1:]), obs_image, cam_matrix, T_cam_from_base, color_dict['GREEN'])
+    obs_image = overlay_path(np.array(gc_actions[0]), obs_image, cam_matrix, T_cam_from_base, color_dict['BLUE'])
+    ax11.imshow(obs_image)
+    ax00.set_title("action predictions")
+    ax11.set_title("observation")
+
+    ax01.imshow(goal_image)
+    ax01.set_title(f"goal")
     plt.show()
 
 
