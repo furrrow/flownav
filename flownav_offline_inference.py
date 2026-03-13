@@ -201,7 +201,7 @@ def main(config: dict) -> None:
     ax01 = fig.add_subplot(gs[1, 0])
     ax11 = fig.add_subplot(gs[:, 1:])
 
-    fig.suptitle("green goal, red explore, magenta best_path")
+    fig.suptitle(f"trajectory visualization with {args.model}")
     uc_actions = list(uc_actions)
     gc_actions = list(gc_actions)
     action_label = gc_actions[0]
@@ -240,8 +240,8 @@ def main(config: dict) -> None:
     obs_image = overlay_path(np.array(gc_actions[1:]), obs_image, cam_matrix, T_cam_from_base, color_dict['GREEN'])
     obs_image = overlay_path(np.array(gc_actions[0]), obs_image, cam_matrix, T_cam_from_base, color_dict['BLUE'])
     ax11.imshow(obs_image)
-    ax00.set_title("action predictions")
-    ax11.set_title("observation")
+    ax00.set_title("action predictions \n green goal, red explore, magenta best_path")
+    ax11.set_title("observation, blue best path")
 
     ax01.imshow(goal_image)
     ax01.set_title(f"goal")
