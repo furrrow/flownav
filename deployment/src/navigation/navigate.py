@@ -10,7 +10,7 @@ from PIL import Image as PILImage
 import argparse
 import torchdiffeq
 from pathlib import Path
-
+import matplotlib.pyplot as plt
 print("cwd:", os.getcwd())
 
 # ROS 2 Imports
@@ -24,7 +24,9 @@ from rclpy.qos import QoSReliabilityPolicy, QoSHistoryPolicy
 # Custom Imports
 from flownav.training.utils import get_action
 from deployment.src.utils import to_numpy, transform_images, load_model
-# from deployment.src.utils_offline import to_numpy, transform_images, load_model
+from flownav.visualizing.plot import plot_trajs_and_points
+from deployment.src.utils_offline import load_calibration, overlay_path
+from deployment.src.utils_offline import RGB_color_dict as color_dict
 
 
 # Load the model 
@@ -39,7 +41,8 @@ class NavigationNode(Node):
         os.makedirs(exp_dir, exist_ok=True)
 
         self.context_size = None
-        self.context_queue = []
+        self.image_queue = []
+        self.frame_queue = []
 
         self.cur_img = None
         self.cur_naction = None
@@ -63,6 +66,7 @@ class NavigationNode(Node):
         TOPOMAP_IMAGES_DIR = "/workspace/prune/deployment/topomaps/images"
         ROBOT_CONFIG_PATH = "./deployment/config/robot.yaml"
         MODEL_CONFIG_PATH = "./deployment/config/models.yaml"
+        CAMERA_MATRIX_DIR = "/workspace/prune/deployment/camera_matrix.json"
         with open(ROBOT_CONFIG_PATH, "r") as f:
             robot_config = yaml.safe_load(f)
         self.rate = robot_config["frame_rate"]
@@ -78,6 +82,7 @@ class NavigationNode(Node):
         WAYPOINT_TOPIC = robot_config['waypoint_topic']
         SAMPLED_ACTIONS_TOPIC = robot_config['sampled_actions_topic']
         REACHED_GOAL_TOPIC = robot_config['reached_goal_topic']
+        OVERLAY_TOPIC = robot_config['overlay_topic']
 
         # load model parameters
         with open(MODEL_CONFIG_PATH, "r") as f:
@@ -88,6 +93,9 @@ class NavigationNode(Node):
             model_params = yaml.safe_load(f)
 
         self.context_size = model_params["context_size"]
+
+        self.cam_matrix, self.dist_coeffs, self.T_base_from_cam = load_calibration(CAMERA_MATRIX_DIR)
+        self.T_cam_from_base = np.linalg.inv(self.T_base_from_cam)
 
         # load model weights
         ckpth_path = args.ckpt
@@ -134,6 +142,10 @@ class NavigationNode(Node):
             Float32MultiArray, SAMPLED_ACTIONS_TOPIC, qos_profile = QoSProfile(reliability=QoSReliabilityPolicy.RELIABLE,
                                                                             history=QoSHistoryPolicy.KEEP_LAST,
                                                                             depth=10))
+        self.trajectory_visual_pub = self.create_publisher(
+            Image, OVERLAY_TOPIC, qos_profile = QoSProfile(reliability=QoSReliabilityPolicy.RELIABLE,
+                                                                            history=QoSHistoryPolicy.KEEP_LAST,
+                                                                            depth=10))
         self.goal_pub = self.create_publisher(Bool, REACHED_GOAL_TOPIC, 1)
         self.timer = self.create_timer(1.0 / self.rate, lambda: self.run_navigation_loop(args))
 
@@ -154,11 +166,11 @@ class NavigationNode(Node):
         self.obs_img = PILImage.fromarray(cv2.cvtColor(self.obs_img, cv2.COLOR_BGR2RGB))
 
         if self.context_size is not None:
-            if len(self.context_queue) < self.context_size + 1:
-                self.context_queue.append(self.obs_img)
+            if len(self.image_queue) < self.context_size + 1:
+                self.image_queue.append(self.obs_img)
             else:
-                self.context_queue.pop(0)
-                self.context_queue.append(self.obs_img)
+                self.image_queue.pop(0)
+                self.image_queue.append(self.obs_img)
 
     def save_images_and_actions(self):
         if self.cur_img is not None and self.cur_naction is not None:
@@ -173,9 +185,9 @@ class NavigationNode(Node):
     def run_navigation_loop(self, args):
         chosen_waypoint = np.zeros(4)
 
-        if len(self.context_queue) > self.context_size:
+        if len(self.image_queue) > self.context_size:
 
-            obs_images = transform_images(self.context_queue, self.model_params["image_size"], center_crop=False)
+            obs_images = transform_images(self.image_queue, self.model_params["image_size"], center_crop=False)
             obs_images = torch.split(obs_images, 3, dim=1)
             obs_images = torch.cat(obs_images, dim=1) 
             obs_images = obs_images.to(device)
@@ -218,14 +230,25 @@ class NavigationNode(Node):
 
                 # Save for logging
                 self.cur_naction = naction
-                self.cur_img = self.context_queue[-1]
+                self.cur_img = self.image_queue[-1]
 
                 sampled_actions_msg = Float32MultiArray()
                 message_data = np.concatenate((np.array([0]), naction.flatten()))
                 sampled_actions_msg.data = message_data.tolist()
                 print("published sampled actions")
                 self.sampled_actions_pub.publish(sampled_actions_msg)
-                naction = naction[0] 
+                gc_actions = list(naction)
+                current_img = np.array(self.cur_img)
+                obs_image = overlay_path(np.array(gc_actions[1:]), current_img, self.cam_matrix, self.T_cam_from_base,
+                                         color_dict['GREEN'])
+                overlay_image = overlay_path(np.array(gc_actions[0]), obs_image, self.cam_matrix, self.T_cam_from_base,
+                                         color_dict['BLUE'])
+                if overlay_image is not None:
+                    out_msg = self.br.cv2_to_imgmsg(np.array(overlay_image), encoding="rgb8")
+                else:
+                    out_msg = self.br.cv2_to_imgmsg(np.array(current_img), encoding="rgb8")
+                self.trajectory_visual_pub.publish(out_msg)
+                naction = naction[0]
                 chosen_waypoint = naction[args.waypoint]
             
         waypoint_msg = Float32MultiArray()
@@ -241,7 +264,6 @@ class NavigationNode(Node):
         
         if reached_goal:
             print("Reached goal! Stopping...")
-        
 
 def main(args: argparse.Namespace):
     rclpy.init()

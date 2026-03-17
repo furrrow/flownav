@@ -119,10 +119,15 @@ def clip_angle(theta) -> float:
 def overlay_path(pts_cur: np.ndarray, img: Optional[np.ndarray] = None, cam_matrix: Optional[np.ndarray] = None,
                  T_cam_from_base: Optional[np.ndarray] = None, color=(0, 0, 255)):
     if pts_cur.size == 0:
+        print("pts_cur.size is zero...")
         return
     if cam_matrix is None or T_cam_from_base is None:
+        print("cam_matrix:", cam_matrix)
+        print("T_cam_from_base:", T_cam_from_base)
+        print("returning...")
         return
     if img is None:
+        print("img is none...")
         return
 
     if len(pts_cur.shape) == 2:
