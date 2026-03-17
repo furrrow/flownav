@@ -1,0 +1,19 @@
+# linear and angular speed limits for the robot
+turtle:
+  max_v: 0.1 # m/s
+  max_w: 0.2 # rad/s
+  image_topic: "/turtle1/image_compressed"
+  waypoint_topic: "/turtle1/waypoint"
+  reached_goal_topic: "/turtle1/topoplan/reached_goal"
+  sampled_actions_topic: "/turtle1/sampled_actions"
+  vel_topic: "/turtle1/cmd_vel"
+ghost:
+  max_v: 0.5 # m/s
+  max_w: 0.5 # rad/s
+  image_topic: "/camera/camera/color/image_raw/compressed"
+  waypoint_topic: "/turtle1/waypoint"
+  reached_goal_topic: "/turtle1/topoplan/reached_goal"
+  sampled_actions_topic: "/turtle1/sampled_actions"
+  vel_topic: "/mcu/command/manual_twist"
+# observation rate fo the robot
+frame_rate: 15

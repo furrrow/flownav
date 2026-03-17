@@ -150,6 +150,7 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
+uv.lock
 
 deployment/src/test/*
 deployment/src/explore_topomap/*

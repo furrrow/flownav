@@ -1,7 +1,7 @@
 import numpy as np
 import yaml
 from typing import Tuple
-import pdb
+import argparse
 
 # ROS2
 import rclpy
@@ -15,17 +15,8 @@ from topic_names import WAYPOINT_TOPIC, REACHED_GOAL_TOPIC, VEL_TOPIC
 from ros_data import ROSData
 from utils import clip_angle 
 
-# CONSTS
-CONFIG_PATH = "../config/robot.yaml"
-with open(CONFIG_PATH, "r") as f:
-    robot_config = yaml.safe_load(f)
-MAX_V = robot_config["max_v"]
-MAX_W = robot_config["max_w"]
-DT = 1 / robot_config["frame_rate"]
-RATE = 15
-EPS = 1e-8
 WAYPOINT_TIMEOUT = 1  # seconds
-FLIP_ANG_VEL = np.pi / 4
+
 
 # GLOBALS
 vel_msg = Twist()
@@ -41,7 +32,7 @@ def clip_angle(theta) -> float:
         return theta
     return theta - 2 * np.pi
 
-def pd_controller(waypoint: np.ndarray) -> Tuple[float]:
+def pd_controller(waypoint: np.ndarray, max_v, max_w, dt, eps=1e-8) -> Tuple[float]:
     """PD controller for the robot"""
 
     # if waypoint[0] != 0.0:
@@ -52,26 +43,40 @@ def pd_controller(waypoint: np.ndarray) -> Tuple[float]:
     else:
         dx, dy, hx, hy = waypoint
     # this controller only uses the predicted heading if dx and dy are near zero
-    if len(waypoint) == 4 and np.abs(dx) < EPS and np.abs(dy) < EPS:
+    if len(waypoint) == 4 and np.abs(dx) < eps and np.abs(dy) < eps:
         v = 0
-        w = clip_angle(np.arctan2(hy, hx)) / DT
-    elif np.abs(dx) < EPS:
+        w = clip_angle(np.arctan2(hy, hx)) / dt
+    elif np.abs(dx) < eps:
         v = 0
-        w = np.sign(dy) * np.pi / (2 * DT)
+        w = np.sign(dy) * np.pi / (2 * dt)
     else:
-        v = dx / DT
-        w = np.arctan(dy / dx) / DT
-    v = np.clip(v, 0, MAX_V)
-    w = np.clip(w, -MAX_W, MAX_W)
+        v = dx / dt
+        w = np.arctan(dy / dx) / dt
+    v = np.clip(v, 0, max_v)
+    w = np.clip(w, -max_w, max_w)
     return v, w
 
 class PDControllerNode(Node):
-    def __init__(self):
+    def __init__(self, args):
         super().__init__("pd_controller")
         self.vel_msg = Twist()
         self.waypoint = ROSData(WAYPOINT_TIMEOUT, name="waypoint")
         self.reached_goal = False
         self.reverse_mode = False
+        self.args = args
+        # CONSTS
+        config_path = "./deployment/config/robot.yaml"
+        with open(config_path, "r") as f:
+            robot_config = yaml.safe_load(f)
+        self.rate = robot_config["frame_rate"]
+
+        robot_config = robot_config[args.robot]
+        self.max_v = robot_config["max_v"]
+        self.max_w = robot_config["max_w"]
+
+        self.dt = 1 / self.rate
+        EPS = 1e-8
+        FLIP_ANG_VEL = np.pi / 4
 
         self.waypoint_sub = self.create_subscription(Float32MultiArray, 
                                                      WAYPOINT_TOPIC, 
@@ -87,7 +92,7 @@ class PDControllerNode(Node):
                                              VEL_TOPIC,
                                              10)
 
-        self.timer = self.create_timer(1.0 / RATE, self.timer_callback)
+        self.timer = self.create_timer(1.0 / self.rate, self.timer_callback)
         self.get_logger().info("Registered with master node. Waiting for waypoints...")
 
     def callback_drive(self, waypoint_msg: Float32MultiArray):
@@ -107,7 +112,7 @@ class PDControllerNode(Node):
             return
         
         if self.waypoint.is_valid(verbose=True):
-            v, w = pd_controller(self.waypoint.get())
+            v, w = pd_controller(self.waypoint.get(), self.max_v, self.max_w, self.dt, eps=1e-8)
             if self.reverse_mode:
                 v *= -1
             self.vel_msg.linear.x = v
@@ -116,8 +121,13 @@ class PDControllerNode(Node):
         self.vel_out.publish(self.vel_msg)
 
 def main():
+    parser = argparse.ArgumentParser(description="Run the Path Manager")
+    parser.add_argument("-r", "--robot", type=str, help="Robot Name",
+                        default="ghost")
+    args = parser.parse_args()
+    print("robot name: ", args.robot)
     rclpy.init()
-    pd_controller_node = PDControllerNode()
+    pd_controller_node = PDControllerNode(args)
     try:
         rclpy.spin(pd_controller_node)
     except KeyboardInterrupt:

@@ -5,9 +5,9 @@ import time
 import numpy as np
 import torch
 import matplotlib
+# matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
-matplotlib.use("TkAgg")
 import yaml
 
 import pickle
@@ -28,15 +28,11 @@ a combination of code from train.py and navigate.py
 """
 
 # CONSTANTS
-TOPOMAP_IMAGES_DIR = "/home/jim/Projects/prune/deployment/topomaps/images"
-CAMERA_MATRIX_DIR = "/home/jim/Projects/prune/deployment/camera_matrix.json"
-ROBOT_CONFIG_PATH ="/home/jim/Projects/prune/deployment/config/ghost.yaml"
+TOPOMAP_IMAGES_DIR = "/workspace/prune/deployment/topomaps/images"
+CAMERA_MATRIX_DIR = "/workspace/prune/deployment/camera_matrix.json"
+ROBOT_CONFIG_PATH ="./deployment/config/robot.yaml"
 MODEL_CONFIG_PATH = "./deployment/config/models.yaml"
-with open(ROBOT_CONFIG_PATH, "r") as f:
-    robot_config = yaml.safe_load(f)
-MAX_V = robot_config["max_v"]
-MAX_W = robot_config["max_w"]
-RATE = robot_config["frame_rate"]
+
 
 def main(config: dict) -> None:
     # Set up the device
@@ -59,6 +55,14 @@ def main(config: dict) -> None:
 
     cur_exp_pkl_dir = f"{cur_exp_dir}/pkl"
     os.makedirs(cur_exp_pkl_dir, exist_ok=True)
+
+    with open(ROBOT_CONFIG_PATH, "r") as f:
+        robot_config = yaml.safe_load(f)
+    RATE = robot_config["frame_rate"]
+    robot_config = robot_config[args.robot]
+    MAX_V = robot_config["max_v"]
+    MAX_W = robot_config["max_w"]
+
 
     # load model parameters
     with open(MODEL_CONFIG_PATH, "r") as f:
@@ -339,6 +343,8 @@ if __name__ == "__main__":
         type=str,
         help="Path to log experiment results",
     )
+    parser.add_argument("-robo", "--robot", type=str, help="Robot Name",
+                        default="ghost")
 
     args = parser.parse_args()
     main(args)

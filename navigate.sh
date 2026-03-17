@@ -1,0 +1,1 @@
+./deployment/src/navigation/navigate.sh

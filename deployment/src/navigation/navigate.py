@@ -11,6 +11,8 @@ import argparse
 import torchdiffeq
 from pathlib import Path
 
+print("cwd:", os.getcwd())
+
 # ROS 2 Imports
 import rclpy
 from rclpy.node import Node
@@ -19,32 +21,15 @@ from std_msgs.msg import Bool, Float32MultiArray
 from rclpy.qos import QoSProfile
 from rclpy.qos import QoSReliabilityPolicy, QoSHistoryPolicy
 
-# ROS Topics
-from topic_names import (IMAGE_TOPIC,
-                        WAYPOINT_TOPIC,
-                        SAMPLED_ACTIONS_TOPIC,
-                        REACHED_GOAL_TOPIC)
-
 # Custom Imports
 from flownav.training.utils import get_action
-from utils import to_numpy, transform_images, load_model
-
-
-# CONSTANTS
-TOPOMAP_IMAGES_DIR = "../topomaps/images"
-ROBOT_CONFIG_PATH ="../config/robot.yaml"
-MODEL_CONFIG_PATH = "../config/models.yaml"
-with open(ROBOT_CONFIG_PATH, "r") as f:
-    robot_config = yaml.safe_load(f)
-MAX_V = robot_config["max_v"]
-MAX_W = robot_config["max_w"]
-RATE = robot_config["frame_rate"] 
+from deployment.src.utils import to_numpy, transform_images, load_model
+# from deployment.src.utils_offline import to_numpy, transform_images, load_model
 
 
 # Load the model 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Using device:", device)
-
 
 class NavigationNode(Node):
     def __init__(self, args: argparse.Namespace):
@@ -72,6 +57,27 @@ class NavigationNode(Node):
         os.makedirs(self.cur_exp_pkl_dir, exist_ok=True)
 
         self.im_idx = 0
+
+        # CONSTS
+        # CONSTANTS
+        TOPOMAP_IMAGES_DIR = "/workspace/prune/deployment/topomaps/images"
+        ROBOT_CONFIG_PATH = "./deployment/config/robot.yaml"
+        MODEL_CONFIG_PATH = "./deployment/config/models.yaml"
+        with open(ROBOT_CONFIG_PATH, "r") as f:
+            robot_config = yaml.safe_load(f)
+        self.rate = robot_config["frame_rate"]
+        robot_config = robot_config[args.robot]
+        self.max_v = robot_config["max_v"]
+        self.max_w = robot_config["max_w"]
+        self.dt = 1 / self.rate
+        EPS = 1e-8
+        FLIP_ANG_VEL = np.pi / 4
+
+        # ROS Topics
+        IMAGE_TOPIC = robot_config['image_topic']
+        WAYPOINT_TOPIC = robot_config['waypoint_topic']
+        SAMPLED_ACTIONS_TOPIC = robot_config['sampled_actions_topic']
+        REACHED_GOAL_TOPIC = robot_config['reached_goal_topic']
 
         # load model parameters
         with open(MODEL_CONFIG_PATH, "r") as f:
@@ -129,7 +135,7 @@ class NavigationNode(Node):
                                                                             history=QoSHistoryPolicy.KEEP_LAST,
                                                                             depth=10))
         self.goal_pub = self.create_publisher(Bool, REACHED_GOAL_TOPIC, 1)
-        self.timer = self.create_timer(1.0 / RATE, lambda: self.run_navigation_loop(args))
+        self.timer = self.create_timer(1.0 / self.rate, lambda: self.run_navigation_loop(args))
 
         self.imsave_timer = self.create_timer(1, lambda:self.save_images_and_actions())
 
@@ -263,7 +269,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--ckpt",
-        required=True,
+        default="./weights/flownav_weights.pth",
         type=str,
         help="Checkpoint path",
     )
@@ -318,10 +324,17 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--exp_dir",
-        "-d",
+        "-e",
         default="./nav_experiments",
         type=str,
         help="Path to log experiment results",
+    )
+    parser.add_argument(
+        "--robot",
+        "-robo",
+        default="ghost",
+        type=str,
+        help="robot type",
     )
 
     args = parser.parse_args()
