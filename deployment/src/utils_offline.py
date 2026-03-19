@@ -159,6 +159,7 @@ def overlay_path(pts_cur: np.ndarray, img: Optional[np.ndarray] = None, cam_matr
         )
         keep = valid_z & valid_xy
         if not keep.any():
+            print("no points kept in front of camera...")
             return
 
         pts_pix = img_pts[keep].astype(int)

@@ -5,9 +5,9 @@ import time
 import numpy as np
 import torch
 import matplotlib
-# matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
+matplotlib.use("TkAgg")
 import yaml
 
 import pickle
@@ -28,11 +28,12 @@ a combination of code from train.py and navigate.py
 """
 
 # CONSTANTS
-TOPOMAP_IMAGES_DIR = "/workspace/prune/deployment/topomaps/images"
-CAMERA_MATRIX_DIR = "/workspace/prune/deployment/camera_matrix.json"
+TOPOMAP_IMAGES_DIR = "/home/jim/Projects/prune/deployment/topomaps/images"
+CAMERA_MATRIX_DIR = "/home/jim/Projects/prune/deployment/camera_matrix.json"
+# TOPOMAP_IMAGES_DIR = "/workspace/prune/deployment/topomaps/images"
+# CAMERA_MATRIX_DIR = "/workspace/prune/deployment/camera_matrix.json"
 ROBOT_CONFIG_PATH ="./deployment/config/robot.yaml"
 MODEL_CONFIG_PATH = "./deployment/config/models.yaml"
-
 
 def main(config: dict) -> None:
     # Set up the device
@@ -62,7 +63,7 @@ def main(config: dict) -> None:
     robot_config = robot_config[args.robot]
     MAX_V = robot_config["max_v"]
     MAX_W = robot_config["max_w"]
-
+    IMG_SIZE = (robot_config["img_w"], robot_config["img_h"]) # (1280, 720)
 
     # load model parameters
     with open(MODEL_CONFIG_PATH, "r") as f:
@@ -96,7 +97,10 @@ def main(config: dict) -> None:
     topomap = []
     for i in range(num_nodes):
         image_path = os.path.join(topomap_dir, topomap_filenames[i])
-        topomap.append(PILImage.open(image_path))
+        topomap_img = PILImage.open(image_path)
+        if topomap_img.size != IMG_SIZE:
+            topomap_img = topomap_img.resize(IMG_SIZE)
+        topomap.append(topomap_img)
 
     context_size = model_params["context_size"]
     context_queue = topomap[:context_size+1]
@@ -241,9 +245,11 @@ def main(config: dict) -> None:
     goal_image = np.array(topomap[-1])
     # obs_image = np.moveaxis(obs_image, 0, -1)
     # goal_image = np.moveaxis(goal_image, 0, -1)
-    obs_image = overlay_path(np.array(gc_actions[1:]), obs_image, cam_matrix, T_cam_from_base, color_dict['GREEN'])
-    obs_image = overlay_path(np.array(gc_actions[0]), obs_image, cam_matrix, T_cam_from_base, color_dict['BLUE'])
-    ax11.imshow(obs_image)
+    overlay_img = overlay_path(np.array(gc_actions), obs_image, cam_matrix, T_cam_from_base, color_dict['GREEN'], color_dict['BLUE'])
+    if overlay_img is not None:
+        ax11.imshow(overlay_img)
+    else:
+        ax11.imshow(obs_image)
     ax00.set_title("action predictions \n green goal, red explore, magenta best_path")
     ax11.set_title("observation, blue best path")
 
@@ -304,7 +310,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--dir",
         "-topo_dir",
-        default="antonov",
+        default="iribe_5207",
+        # default="antonov",
         type=str,
         help="path to topomap images",
     )
