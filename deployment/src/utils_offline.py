@@ -117,7 +117,7 @@ def clip_angle(theta) -> float:
     return theta - 2 * np.pi
 
 def overlay_path(pts_cur: np.ndarray, img: Optional[np.ndarray] = None, cam_matrix: Optional[np.ndarray] = None,
-                 T_cam_from_base: Optional[np.ndarray] = None, color=(0, 0, 255)):
+                 T_cam_from_base: Optional[np.ndarray] = None, color=(0, 0, 255), first_color=None):
     if pts_cur.size == 0:
         print("pts_cur.size is zero...")
         return
@@ -137,7 +137,8 @@ def overlay_path(pts_cur: np.ndarray, img: Optional[np.ndarray] = None, cam_matr
         n_trajectories = pts_cur.shape[0]
     else:
         print("error, unable to process pts_cur dimension", pts_cur.shape)
-
+    if first_color is None:
+        first_color = color
     # Points in base frame -> camera frame -> pixels
     R_cb = T_cam_from_base[:3, :3]
     t_cb = T_cam_from_base[:3, 3]
@@ -161,11 +162,15 @@ def overlay_path(pts_cur: np.ndarray, img: Optional[np.ndarray] = None, cam_matr
             return
 
         pts_pix = img_pts[keep].astype(int)
+        if i == 0:
+            my_color = first_color
+        else:
+            my_color = color
         if len(pts_pix) >= 2:
-            cv2.polylines(overlay, [pts_pix], isClosed=False, color=color, thickness=2)
+            cv2.polylines(overlay, [pts_pix], isClosed=False, color=my_color, thickness=2)
         else:
             for pt in pts_pix:
-                cv2.circle(overlay, tuple(pt), radius=3, color=color, thickness=-1)
+                cv2.circle(overlay, tuple(pt), radius=3, color=my_color, thickness=-1)
 
     return overlay
 

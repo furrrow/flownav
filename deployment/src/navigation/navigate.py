@@ -1,5 +1,7 @@
 
 import os
+import time
+
 import numpy as np
 import torch
 import yaml
@@ -205,6 +207,7 @@ class NavigationNode(Node):
             self.closest_node = min_idx + start
 
             # infer action
+            now = time.time()
             with torch.no_grad():
                 obs_cond = obsgoal_cond[min(min_idx + int(dists[min_idx] < args.close_threshold), len(obsgoal_cond) - 1)].unsqueeze(0)
 
@@ -225,7 +228,8 @@ class NavigationNode(Node):
                     method="euler",
                 )
                 naction = traj[-1]
-                    
+                inference_time = time.time()
+                print(f"inference time: {inference_time - now}")
                 naction = to_numpy(get_action(naction))
 
                 # Save for logging
@@ -239,15 +243,16 @@ class NavigationNode(Node):
                 self.sampled_actions_pub.publish(sampled_actions_msg)
                 gc_actions = list(naction)
                 current_img = np.array(self.cur_img)
-                obs_image = overlay_path(np.array(gc_actions[1:]), current_img, self.cam_matrix, self.T_cam_from_base,
-                                         color_dict['GREEN'])
-                overlay_image = overlay_path(np.array(gc_actions[0]), obs_image, self.cam_matrix, self.T_cam_from_base,
-                                         color_dict['BLUE'])
+
+                overlay_image = overlay_path(np.array(gc_actions), current_img, self.cam_matrix, self.T_cam_from_base,
+                                         color_dict['GREEN'], color_dict['BLUE'])
                 if overlay_image is not None:
                     out_msg = self.br.cv2_to_imgmsg(np.array(overlay_image), encoding="rgb8")
                 else:
                     out_msg = self.br.cv2_to_imgmsg(np.array(current_img), encoding="rgb8")
                 self.trajectory_visual_pub.publish(out_msg)
+                plot_time = time.time()
+                print(f"plot time: {plot_time - inference_time}")
                 naction = naction[0]
                 chosen_waypoint = naction[args.waypoint]
             
