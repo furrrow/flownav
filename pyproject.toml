@@ -7,31 +7,34 @@ authors = [
     {name = "Abhijeet Nayak", email = "abhijeet.nayak@utn.de"},
     {name = "Debora Oliveira", email = "debora.oliveira@utn.de"},
 ]
-dependencies = [
-    "click>=8.2.1",
-    "numpy==1.*",
-    "torch>=2.7.1",
-    "warmup-scheduler>=0.3",
-    "torchvision>=0.22.1",
-    "efficientnet-pytorch>=0.7.1",
-    "torchcfm>=1.0.7",
-    "wandb>=0.21.1",
-    "diffusers==0.11.1",
-    "diffusion-policy @ git+ssh://git@github.com/debOliveira/diffusion_policy.git@main",
-    "einops>=0.8.1",
-    "lmdb>=1.7.3",
-    "depth-anything-v2 @ git+ssh://git@github.com/debOliveira/depth-anything-V2.git@main",
-    "huggingface-hub==0.25.2",
-    "opencv-python>=4.11.0.86",
-]
-requires-python = ">=3.10"
 readme = "README.md"
-license = {text = "MIT"}
+requires-python = ">=3.10"
+dependencies = [
+    "accelerate>=1.12.0",
+    "diffusers>=0.37.0",
+    "efficientnet-pytorch>=0.7.1",
+    "einops>=0.8.2",
+    "matplotlib>=3.10.8",
+    "mslk>=0.0.0",
+    "numpy>=2.2.6",
+    "opencv-python>=4.13.0.92",
+    "pandas>=2.3.3",
+    "pyyaml>=6.0.3",
+    "scikit-image>=0.25.2",
+    "tensorboard>=2.20.0",
+    "torch>=2.10.0",
+    "torchao>=0.16.0",
+    "torchdiffeq>=0.2.5",
+    "torchvision>=0.25.0",
+    "tqdm>=4.67.3",
+    "transformers>=5.0",
+    "wandb>=0.25.0",
+    "depth-anything-v2",
+    "diffusion-policy",
+    "vit-pytorch>=1.18.0",
+]
 
-[build-system]
-requires = ["setuptools>=61"]
-build-backend = "setuptools.build_meta"
+[tool.uv.sources]
+depth-anything-v2 = { git = "ssh://git@github.com/debOliveira/depth-anything-V2.git", rev = "main" }
+diffusion-policy = { git = "ssh://git@github.com/debOliveira/diffusion_policy.git", rev = "main" }
 
-
-[tool.pdm]
-distribution = true

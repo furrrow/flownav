@@ -21,6 +21,7 @@ from flownav.visualizing.plot import plot_trajs_and_points
 from deployment.src.utils_offline import (to_numpy, transform_images, load_model,
                                           load_calibration, overlay_path)
 from deployment.src.utils_offline import RGB_color_dict as color_dict
+from inference_point_based import RewardInferenceRunner
 """
 offline_inference.py
 custom inference script to test out flownav,
@@ -202,6 +203,16 @@ def main(config: dict) -> None:
         current_action = gc_actions[0]
         chosen_waypoint = current_action[args.waypoint]
 
+        # Reward model
+        rm_ckpt_path = "./weights/epoch_029.pt"
+        rm_config_path = "/home/jim/Projects/prune/config/config_point_based.yaml"
+        image_tensor = torch.from_numpy(np.array(context_queue[-1])).permute(2, 0, 1).contiguous()  # (3, H, W)
+        points_tensor = torch.from_numpy(gc_actions)  # (M, K, 2)
+        runner = RewardInferenceRunner(checkpoint_path=rm_ckpt_path, config_path=rm_config_path, verbose=True)
+        rewards = runner.predict_rewards(image_tensor=image_tensor, points_tensor=points_tensor)
+        best_action = torch.argmax(rewards).item()
+        print("Predicted rewards:", rewards, "best reward action(red) :", best_action)
+
     # plot distribution:
     fig = plt.figure(figsize=(12, 8))
     gs = GridSpec(2, 3, figure=fig)
@@ -241,11 +252,12 @@ def main(config: dict) -> None:
         traj_alphas=traj_alphas,
         point_alphas=point_alphas,
     )
-    obs_image = np.array(context_queue[0])
+    obs_image = np.array(context_queue[-1]) # not sure which img is the best one to show...
     goal_image = np.array(topomap[-1])
     # obs_image = np.moveaxis(obs_image, 0, -1)
     # goal_image = np.moveaxis(goal_image, 0, -1)
     overlay_img = overlay_path(np.array(gc_actions), obs_image, cam_matrix, T_cam_from_base, color_dict['GREEN'], color_dict['BLUE'])
+    overlay_img = overlay_path(np.array(gc_actions[best_action]), overlay_img, cam_matrix, T_cam_from_base, color_dict['RED'])
     if overlay_img is not None:
         ax11.imshow(overlay_img)
     else:
@@ -310,8 +322,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--dir",
         "-topo_dir",
-        default="iribe_5207",
-        # default="antonov",
+        # default="iribe_5207",
+        default="road_x",
         type=str,
         help="path to topomap images",
     )
