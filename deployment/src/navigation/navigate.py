@@ -260,7 +260,7 @@ class NavigationNode(Node):
         waypoint_msg.data = chosen_waypoint.flatten().tolist()
         self.waypoint_pub.publish(waypoint_msg)
 
-        print(f"CHOSEN WAYPOINT: {chosen_waypoint}")
+        print(f"image queue {len(self.image_queue)} chosen waypoint: {chosen_waypoint}")
 
         reached_goal = self.closest_node == self.goal_node
         goal_reached_msg = Bool()
