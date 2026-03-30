@@ -2,7 +2,8 @@ import argparse
 import os
 import shutil
 import time
-from utils import msg_to_pil
+import numpy as np
+# from utils import msg_to_pil
 import cv2
 from cv_bridge import CvBridge
 from PIL import Image as PILImage
@@ -15,7 +16,14 @@ from sensor_msgs.msg import Image, CompressedImage
 from topic_names import IMAGE_TOPIC
 
 TOPOMAP_IMAGES_DIR = "../topomaps/images"
-IMAGE_TOPIC = '/image_compressed'
+# IMAGE_TOPIC = '/image_compressed'
+IMAGE_TOPIC = '/camera/camera/color/image_raw/compressed'
+
+def msg_to_pil(msg: Image) -> PILImage.Image:
+    img = np.frombuffer(msg.data, dtype=np.uint8).reshape(
+        msg.height, msg.width, -1)
+    pil_image = PILImage.fromarray(img)
+    return pil_image
 
 def remove_files_in_dir(dir_path: str):
     for f in os.listdir(dir_path):
@@ -40,7 +48,7 @@ class TopoMapNode(Node):
         self.i = 0
         self.start_time = time.time()
         self.br = CvBridge()
-
+        print(f"topomap saving to dir: {self.topomap_name_dir}")
         if not os.path.isdir(self.topomap_name_dir):
             os.makedirs(self.topomap_name_dir)
         else:

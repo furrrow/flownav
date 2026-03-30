@@ -4,7 +4,7 @@
 # Robot name space to append to all topics
 # Change this to match your robot's namespace
 # For example, if your robot is named "turtle1", you can set it to "/turtle1"
-ROBOT_NAMESPACE = "/turtle1"    
+ROBOT_NAMESPACE = "/ghost"
 
 # Image observation topics
 IMAGE_TOPIC = f"{ROBOT_NAMESPACE}/image_compressed"
@@ -15,4 +15,5 @@ REACHED_GOAL_TOPIC = f"{ROBOT_NAMESPACE}/topoplan/reached_goal"
 SAMPLED_ACTIONS_TOPIC = f"{ROBOT_NAMESPACE}/sampled_actions"
 
 # move the robot
-VEL_TOPIC = f"{ROBOT_NAMESPACE}/cmd_vel"
+# VEL_TOPIC = f"{ROBOT_NAMESPACE}/cmd_vel"
+VEL_TOPIC = f"/mcu/command/manual_twist"

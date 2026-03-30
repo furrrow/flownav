@@ -64,7 +64,8 @@ class NavigationNode(Node):
         self.im_idx = 0
 
         # CONSTANTS
-        TOPOMAP_IMAGES_DIR = "/workspace/prune/deployment/topomaps/images"
+        # TOPOMAP_IMAGES_DIR = "/workspace/prune/deployment/topomaps/images"
+        TOPOMAP_IMAGES_DIR = "./deployment/topomaps/images"
         ROBOT_CONFIG_PATH = "./deployment/config/robot.yaml"
         MODEL_CONFIG_PATH = "./deployment/config/models.yaml"
         CAMERA_MATRIX_DIR = "/workspace/prune/deployment/camera_matrix.json"
@@ -74,6 +75,7 @@ class NavigationNode(Node):
         robot_config = robot_config[args.robot]
         self.max_v = robot_config["max_v"]
         self.max_w = robot_config["max_w"]
+        self.image_resize = (robot_config["img_w"], robot_config["img_h"])  # (1280, 720)
         self.dt = 1 / self.rate
         EPS = 1e-8
         FLIP_ANG_VEL = np.pi / 4
@@ -127,7 +129,10 @@ class NavigationNode(Node):
         topomap = []
         for i in range(num_nodes):
             image_path = os.path.join(topomap_dir, topomap_filenames[i])
-            topomap.append(PILImage.open(image_path))
+            topomap_img = PILImage.open(image_path)
+            if topomap_img.size != self.image_resize:
+                topomap_img = topomap_img.resize(self.image_resize)
+            topomap.append(topomap_img)
 
         closest_node = 0
         assert -1 <= args.goal_node < len(topomap), "Invalid goal index"
@@ -172,6 +177,9 @@ class NavigationNode(Node):
         self.get_logger().info("Reached Image callback!")
         self.obs_img = self.br.compressed_imgmsg_to_cv2(msg)
         self.obs_img = PILImage.fromarray(cv2.cvtColor(self.obs_img, cv2.COLOR_BGR2RGB))
+        if self.obs_img.size != self.image_resize:
+            self.obs_img = self.obs_img.resize(self.image_resize)
+            # print(f"resizing image from {self.obs_img.size} to {self.image_resize}")
 
         if self.context_size is not None:
             if len(self.image_queue) < self.context_size + 1:

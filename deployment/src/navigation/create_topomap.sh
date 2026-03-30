@@ -16,8 +16,7 @@ tmux select-pane -t 0
 tmux send-keys "source /workspace/prune/setup.bash" Enter
 # Source venv
 #tmux send-keys "source .venv/bin/activate" Enter
-#tmux send-keys "python create_topomap.py --dt 1 --dir $1" Enter
-tmux send-keys "uv run create_topomap.py --dt 1 --dir $1"
+tmux send-keys "uv run create_topomap.py --dt 1 --dir $1" Enter
 
 tmux select-pane -t 1
 # Enabling Discovery Server mode creates this file

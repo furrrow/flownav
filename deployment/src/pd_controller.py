@@ -42,6 +42,7 @@ def pd_controller(waypoint: np.ndarray, max_v, max_w, dt, eps=1e-8) -> Tuple[flo
         dx, dy = waypoint
     else:
         dx, dy, hx, hy = waypoint
+    # print(f"dx: {dx}, dy: {dy}")
     # this controller only uses the predicted heading if dx and dy are near zero
     if len(waypoint) == 4 and np.abs(dx) < eps and np.abs(dy) < eps:
         v = 0
@@ -52,6 +53,7 @@ def pd_controller(waypoint: np.ndarray, max_v, max_w, dt, eps=1e-8) -> Tuple[flo
     else:
         v = dx / dt
         w = np.arctan(dy / dx) / dt
+    # print(f"before clipping v: {v}, w: {w}")
     v = np.clip(v, 0, max_v)
     w = np.clip(w, -max_w, max_w)
     return v, w

@@ -17,7 +17,7 @@ tmux select-pane -t 0
 tmux send-keys "source /workspace/prune/setup.bash" Enter
 #tmux send-keys "source .venv/bin/activate" Enter
 #tmux send-keys "python navigate.py $@"
-tmux send-keys "uv run deployment/src/navigation/navigate.py --dir iribe_5207"
+tmux send-keys "uv run deployment/src/navigation/navigate.py --dir iribe_test"
 
 
 # Run the pd_controller.py script in the fourth pane

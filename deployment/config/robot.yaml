@@ -9,8 +9,8 @@ turtle:
   vel_topic: "/turtle1/cmd_vel"
   overlay_topic: "/turtle1/turtlelay"
 ghost:
-  max_v: 0.5 # m/s
-  max_w: 0.5 # rad/s
+  max_v: 0.2 # m/s
+  max_w: 0.25 # rad/s
   image_topic: "/camera/camera/color/image_raw/compressed"
 #  image_topic: "/camera/camera/color/image_raw"
   waypoint_topic: "/ghost/waypoint"
