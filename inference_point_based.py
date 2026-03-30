@@ -443,7 +443,7 @@ class RewardInferenceRunner:
             traj_per_image=4
         )
         model.to(device)
-        model.load_state_dict(state_dict, strict=True)
+        model.load_state_dict(state_dict, strict=False)
         model.eval()
 
         return model

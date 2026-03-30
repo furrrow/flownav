@@ -12,6 +12,7 @@ ghost:
   max_v: 0.5 # m/s
   max_w: 0.5 # rad/s
   image_topic: "/camera/camera/color/image_raw/compressed"
+#  image_topic: "/camera/camera/color/image_raw"
   waypoint_topic: "/ghost/waypoint"
   reached_goal_topic: "/ghost/topoplan/reached_goal"
   sampled_actions_topic: "/ghost/sampled_actions"

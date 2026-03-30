@@ -29,7 +29,7 @@ from deployment.src.utils import to_numpy, transform_images, load_model
 from flownav.visualizing.plot import plot_trajs_and_points
 from deployment.src.utils_offline import load_calibration, overlay_path
 from deployment.src.utils_offline import RGB_color_dict as color_dict
-
+from inference_point_based import RewardInferenceRunner
 
 # Load the model 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -48,7 +48,7 @@ class NavigationNode(Node):
 
         self.cur_img = None
         self.cur_naction = None
-
+        self.steer = args.steer
         self.k_steps = args.k_steps
 
         ckpt_path = Path(args.ckpt)
@@ -63,7 +63,6 @@ class NavigationNode(Node):
 
         self.im_idx = 0
 
-        # CONSTS
         # CONSTANTS
         TOPOMAP_IMAGES_DIR = "/workspace/prune/deployment/topomaps/images"
         ROBOT_CONFIG_PATH = "./deployment/config/robot.yaml"
@@ -79,8 +78,15 @@ class NavigationNode(Node):
         EPS = 1e-8
         FLIP_ANG_VEL = np.pi / 4
 
+        # reward model
+        rm_ckpt_path = "./weights/epoch_029.pt"
+        rm_config_path = "./deployment/config/config_point_based.yaml"
+        if args.steer:
+            self.reward_runner = RewardInferenceRunner(checkpoint_path=rm_ckpt_path, config_path=rm_config_path, verbose=True)
+            print("\n!! steering based on reward model...")
         # ROS Topics
         IMAGE_TOPIC = robot_config['image_topic']
+        print(f"IMAGE_TOPIC: {IMAGE_TOPIC}")
         WAYPOINT_TOPIC = robot_config['waypoint_topic']
         SAMPLED_ACTIONS_TOPIC = robot_config['sampled_actions_topic']
         REACHED_GOAL_TOPIC = robot_config['reached_goal_topic']
@@ -244,8 +250,18 @@ class NavigationNode(Node):
                 gc_actions = list(naction)
                 current_img = np.array(self.cur_img)
 
+                if self.steer:
+                    image_tensor = torch.from_numpy(current_img).permute(2, 0, 1).contiguous()  # (3, H, W)
+                    points_tensor = torch.from_numpy(naction)  # (M, K, 2)
+                    rewards = self.reward_runner.predict_rewards(image_tensor=image_tensor, points_tensor=points_tensor)
+                    best_action = torch.argmax(rewards).item()
+                    # print("Predicted rewards:", rewards, "best reward action(red) :", best_action)
+
                 overlay_image = overlay_path(np.array(gc_actions), current_img, self.cam_matrix, self.T_cam_from_base,
                                          color_dict['GREEN'], color_dict['BLUE'])
+                if self.steer:
+                    overlay_image = overlay_path(np.array(gc_actions[best_action]), overlay_image, self.cam_matrix,
+                                               self.T_cam_from_base, color_dict['RED'])
                 if overlay_image is not None:
                     out_msg = self.br.cv2_to_imgmsg(np.array(overlay_image), encoding="rgb8")
                 else:
@@ -260,7 +276,7 @@ class NavigationNode(Node):
         waypoint_msg.data = chosen_waypoint.flatten().tolist()
         self.waypoint_pub.publish(waypoint_msg)
 
-        print(f"image queue {len(self.image_queue)} chosen waypoint: {chosen_waypoint}")
+        # print(f"image queue {len(self.image_queue)} chosen waypoint: {chosen_waypoint}")
 
         reached_goal = self.closest_node == self.goal_node
         goal_reached_msg = Bool()
@@ -363,7 +379,11 @@ if __name__ == "__main__":
         type=str,
         help="robot type",
     )
-
+    parser.add_argument(
+        "--steer",
+        action = "store_true",
+        help = "whether to use the reward model steering"
+    )
     args = parser.parse_args()
 
     print(f"Using {device}")
