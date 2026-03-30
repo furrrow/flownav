@@ -234,8 +234,6 @@ class NavigationNode(Node):
                     method="euler",
                 )
                 naction = traj[-1]
-                inference_time = time.time()
-                print(f"inference time: {inference_time - now}")
                 naction = to_numpy(get_action(naction))
 
                 # Save for logging
@@ -256,6 +254,8 @@ class NavigationNode(Node):
                     rewards = self.reward_runner.predict_rewards(image_tensor=image_tensor, points_tensor=points_tensor)
                     best_action = torch.argmax(rewards).item()
                     # print("Predicted rewards:", rewards, "best reward action(red) :", best_action)
+                inference_time = time.time()
+                print(f"inference time: {inference_time - now}")
 
                 overlay_image = overlay_path(np.array(gc_actions), current_img, self.cam_matrix, self.T_cam_from_base,
                                          color_dict['GREEN'], color_dict['BLUE'])
@@ -301,7 +301,7 @@ def main(args: argparse.Namespace):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Code to run FlowNav Navigation on the turtlebot")
+        description="Code to run FlowNav Navigation")
     
     parser.add_argument(
         "--model",

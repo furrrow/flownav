@@ -82,7 +82,7 @@ class Planner(Node):
         self.cmd_topic = cmd_topic
         choice = input("Publish? 1 or 0: ")
         
-        if(int(choice) == 1):
+        if int(choice) == 1:
             self.ctrl_pub = self.create_publisher(Twist, self.cmd_topic, 10)
             print("Publishing to cmd_vel")
         else:

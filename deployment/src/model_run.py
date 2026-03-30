@@ -31,7 +31,7 @@ from policy_sources.visualnav_transformer.train.vint_train.training.train_utils 
 
 # Default topomap location (relative to this file)
 # TOPOMAP_IMAGES_ROOT = os.path.join(os.path.dirname(__file__), "topomaps", "images")
-TOPOMAP_IMAGES_ROOT = "/workspace/chop/policy_sources/visualnav_transformer/deployment/topomaps/images"  # updated path
+TOPOMAP_IMAGES_ROOT = "/workspace/prune/deployment/topomaps/images"  # updated path
 
 class InferenceConfigOriginal:
     resume: bool = True

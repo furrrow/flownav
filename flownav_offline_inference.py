@@ -190,11 +190,6 @@ def main(config: dict) -> None:
         ) # torch.Size([k_steps, 8, 8, 2])
         gc_actions = to_numpy(get_action(traj[-1]))  # [8, 8, 2]
 
-        proc_time = time.time() - start_time
-        mean_proc_time = proc_time / noisy_action.shape[0]
-        print("Mean Processing Time UC", mean_proc_time)
-        print("Processing Time UC", proc_time)
-
         # sampled_actions_msg = Float32MultiArray()
         message_data = np.concatenate((np.array([0]), gc_actions.flatten()))
         # sampled_actions_msg.data = message_data.tolist()
@@ -203,15 +198,21 @@ def main(config: dict) -> None:
         current_action = gc_actions[0]
         chosen_waypoint = current_action[args.waypoint]
 
-        # Reward model
-        rm_ckpt_path = "./weights/epoch_029.pt"
-        rm_config_path = "/home/jim/Projects/prune/config/config_point_based.yaml"
-        image_tensor = torch.from_numpy(np.array(context_queue[-1])).permute(2, 0, 1).contiguous()  # (3, H, W)
-        points_tensor = torch.from_numpy(gc_actions)  # (M, K, 2)
-        runner = RewardInferenceRunner(checkpoint_path=rm_ckpt_path, config_path=rm_config_path, verbose=True)
-        rewards = runner.predict_rewards(image_tensor=image_tensor, points_tensor=points_tensor)
-        best_action = torch.argmax(rewards).item()
-        print("Predicted rewards:", rewards, "best reward action(red) :", best_action)
+        if args.steer:
+            # Reward model
+            rm_ckpt_path = "./weights/epoch_029.pt"
+            rm_config_path = "/home/jim/Projects/prune/config/config_point_based.yaml"
+            image_tensor = torch.from_numpy(np.array(context_queue[-1])).permute(2, 0, 1).contiguous()  # (3, H, W)
+            points_tensor = torch.from_numpy(gc_actions)  # (M, K, 2)
+            runner = RewardInferenceRunner(checkpoint_path=rm_ckpt_path, config_path=rm_config_path, verbose=True)
+            rewards = runner.predict_rewards(image_tensor=image_tensor, points_tensor=points_tensor)
+            best_action = torch.argmax(rewards).item()
+            print("Predicted rewards:", rewards, "best reward action(red) :", best_action)
+
+        proc_time = time.time() - start_time
+        mean_proc_time = proc_time / noisy_action.shape[0]
+        print("Mean Processing Time UC", mean_proc_time)
+        print("Processing Time UC", proc_time)
 
     # plot distribution:
     fig = plt.figure(figsize=(12, 8))
@@ -257,7 +258,8 @@ def main(config: dict) -> None:
     # obs_image = np.moveaxis(obs_image, 0, -1)
     # goal_image = np.moveaxis(goal_image, 0, -1)
     overlay_img = overlay_path(np.array(gc_actions), obs_image, cam_matrix, T_cam_from_base, color_dict['GREEN'], color_dict['BLUE'])
-    overlay_img = overlay_path(np.array(gc_actions[best_action]), overlay_img, cam_matrix, T_cam_from_base, color_dict['RED'])
+    if args.steer:
+        overlay_img = overlay_path(np.array(gc_actions[best_action]), overlay_img, cam_matrix, T_cam_from_base, color_dict['RED'])
     if overlay_img is not None:
         ax11.imshow(overlay_img)
     else:
@@ -363,6 +365,11 @@ if __name__ == "__main__":
     )
     parser.add_argument("-robo", "--robot", type=str, help="Robot Name",
                         default="ghost")
+    parser.add_argument(
+        "--steer",
+        action="store_true",
+        help="whether to use the reward model steering"
+    )
 
     args = parser.parse_args()
     main(args)
