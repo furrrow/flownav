@@ -322,8 +322,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--dir",
         "-topo_dir",
-        # default="iribe_5207",
-        default="road_x",
+        default="antonov",
         type=str,
         help="path to topomap images",
     )
