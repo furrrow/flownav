@@ -265,11 +265,13 @@ class NavigationNode(Node):
                 inference_time = time.time()
                 print(f"inference time: {inference_time - now}")
 
-                overlay_image = overlay_path(np.array(gc_actions), current_img, self.cam_matrix, self.T_cam_from_base,
-                                         color_dict['GREEN'], color_dict['BLUE'])
                 if self.steer:
-                    overlay_image = overlay_path(np.array(gc_actions[best_action]), overlay_image, self.cam_matrix,
-                                               self.T_cam_from_base, color_dict['RED'])
+                    overlay_image = overlay_path(np.array(gc_actions), current_img, self.cam_matrix,
+                                                 self.T_cam_from_base, color_dict['GREEN'], rewards=rewards)
+                else:
+                    overlay_image = overlay_path(np.array(gc_actions), current_img, self.cam_matrix,
+                                                 self.T_cam_from_base, color_dict['GREEN'])
+
                 if overlay_image is not None:
                     out_msg = self.br.cv2_to_imgmsg(np.array(overlay_image), encoding="rgb8")
                 else:
