@@ -23,6 +23,8 @@ from deployment.src.utils_offline import (to_numpy, transform_images, load_model
                                           load_calibration, overlay_path)
 from deployment.src.utils_offline import RGB_color_dict as color_dict
 from inference_point_based import RewardInferenceRunner
+from frechetdist import frdist
+from dtaidistance import dtw, dtw_ndim
 """
 offline_inference.py
 custom inference script to test out flownav,
@@ -50,6 +52,51 @@ def make_video_writer(video_path: str, fps: float):
     print(f"ffmpeg is not available; saving GIF instead: {fallback_path}")
     return animation.PillowWriter(fps=fps), fallback_path
 
+def resample_path_2d(path: np.ndarray, k: int) -> np.ndarray:
+    """
+    Evenly resample a sequence of 2D points to length k using linear interpolation.
+    Expects ``path`` shape (n, 2); returns float32 array shape (k, 2).
+    """
+    if path.size == 0:
+        return np.zeros((k, 2), dtype=np.float32)
+    if len(path) == 1:
+        return np.repeat(path, k, axis=0)
+    deltas = path[1:] - path[:-1]
+    seg_len = np.linalg.norm(deltas, axis=1)
+    cum = np.concatenate([np.array([0.0], dtype=np.float32), np.cumsum(seg_len, dtype=np.float32)])
+    total = cum[-1]
+    if total == 0:
+        return np.repeat(path[:1], k, axis=0)
+
+    target = np.linspace(0.0, float(total), num=k, dtype=np.float32)
+    out = np.empty((k, path.shape[1]), dtype=np.float32)
+    for i, t in enumerate(target):
+        j = np.searchsorted(cum, t, side="right") - 1
+        j = int(np.clip(j, 0, len(seg_len) - 1))
+        t0, t1 = cum[j], cum[j + 1]
+        alpha = 0.0 if t1 == t0 else float((t - t0) / (t1 - t0))
+        out[i] = path[j] * (1 - alpha) + path[j + 1] * alpha
+    return out
+
+def prune_distance(points: np.ndarray, cutoff: float, k: int):
+    """
+
+    :param points: trajectories of xy points, (num_trajectories, traj_length, 2)
+    :param cutoff: a distance measure
+    :return: updated trajectory points
+    """
+    paths = np.array(points, dtype=np.float32) # (8, 8, 2)
+    n_pts, pt_len, _ = paths.shape
+    first_points = np.expand_dims(paths[:, 0, :], 1).repeat(pt_len, axis=1)
+    deltas = paths - first_points
+    seg_len = np.linalg.norm(deltas, axis=-1)
+    path_check = seg_len > cutoff
+    for i, i_path in enumerate(paths):
+        if not True in path_check[i]:
+            continue
+        sub_path = i_path[:np.argmax(path_check[i])]
+        paths[i] = resample_path_2d(sub_path, k)
+    return paths
 
 def main(config: dict) -> None:
     # Set up the device
@@ -62,9 +109,9 @@ def main(config: dict) -> None:
     os.makedirs(exp_dir, exist_ok=True)
 
     k_steps = args.k_steps
-
+    distance_cutoff = 4.5 # won't consider paths beyond this distance when doing steering
     ckpt_path = Path(args.ckpt)
-    cur_exp_dir = f"{exp_dir}/{args.model}_{ckpt_path.name}_{args.dir}_{args.goal_node}_{args.k_steps}"
+    cur_exp_dir = f"{exp_dir}/{args.model}_{ckpt_path.name}_{args.dir}_{args.goal_node}_{args.k_steps}_{distance_cutoff}"
     os.makedirs(cur_exp_dir, exist_ok=True)
 
     cur_exp_im_dir = f"{cur_exp_dir}/images"
@@ -86,6 +133,16 @@ def main(config: dict) -> None:
     robot_config = robot_config[args.robot]
     IMG_SIZE = (robot_config["img_w"], robot_config["img_h"]) # (1280, 720)
 
+    if args.mode == "navigate":
+        mode = "navigate"
+    else:
+        mode = "explore"
+
+    if args.steer:
+        # Reward model
+        rm_ckpt_path = "./weights/epoch_029.pt"
+        rm_config_path = "/home/jim/Projects/prune/config/config_point_based.yaml"
+        reward_runner = RewardInferenceRunner(checkpoint_path=rm_ckpt_path, config_path=rm_config_path, verbose=True)
     # load model parameters
     with open(MODEL_CONFIG_PATH, "r") as f:
         model_paths = yaml.safe_load(f)
@@ -150,7 +207,7 @@ def main(config: dict) -> None:
         context_queue = topomap[start_img:context_size + start_img + 1]
         rewards = None
         chosen_waypoint = np.zeros(4)
-        print(f"\nNavigation iteration {nav_idx}: topomap window {start_img}-{start_img + context_size}")
+        print(f"\nNavigation iteration {nav_idx}: topomap {args.dir} window {start_img}-{start_img + context_size}")
 
         obs_images = transform_images(context_queue, model_params["image_size"], center_crop=False)
         obs_images = torch.split(obs_images, 3, dim=1)
@@ -161,87 +218,75 @@ def main(config: dict) -> None:
         end = min(closest_node + args.radius + 1, goal_node)
         goal_image = [transform_images(g_img, model_params["image_size"], center_crop=False).to(device) for g_img in
                       topomap[start:end + 1]]
-        goal_image = torch.concat(goal_image, dim=0)
+        goal_image = torch.concat(goal_image, dim=0) # [6, 3, 96, 96]
 
-        # navigation
-        obsgoal_cond = model('vision_encoder', obs_img=obs_images.repeat(len(goal_image), 1, 1, 1),
-                                  goal_img=goal_image, input_goal_mask=no_mask.repeat(len(goal_image)))
-        dists = model("dist_pred_net", obsgoal_cond=obsgoal_cond)
-        dists = to_numpy(dists.flatten())
-
-        # exploration
-        obs_cond = model('vision_encoder', obs_img=obs_images.repeat(len(goal_image), 1, 1, 1),
+        if mode == "explore":
+            obs_cond = model('vision_encoder', obs_img=obs_images.repeat(len(goal_image), 1, 1, 1),
                              goal_img=goal_image, input_goal_mask=one_mask.repeat(len(goal_image)))
+            dists = model("dist_pred_net", obsgoal_cond=obs_cond)
+        elif mode == "navigate":
+            obs_cond = model('vision_encoder', obs_img=obs_images.repeat(len(goal_image), 1, 1, 1),
+                                      goal_img=goal_image, input_goal_mask=no_mask.repeat(len(goal_image)))
+            dists = model("dist_pred_net", obsgoal_cond=obs_cond)
+
+        dists = to_numpy(dists.flatten())
         min_idx = np.argmin(dists)
-        closest_node = min_idx + start
+        closest_node = min_idx + closest_node
 
         # infer action
         with torch.no_grad():
             start_time = time.time()
-            obs_cond = obs_cond[
-                min(min_idx + int(dists[min_idx] < args.close_threshold), len(obsgoal_cond) - 1)].unsqueeze(0)
-            obsgoal_cond = obsgoal_cond[
-                min(min_idx + int(dists[min_idx] < args.close_threshold), len(obsgoal_cond) - 1)].unsqueeze(0)
+            if mode == "explore":
+                obs_cond = obs_cond[
+                    min(min_idx + int(dists[min_idx] < args.close_threshold), len(obs_cond) - 1)].unsqueeze(0)
+            elif mode == "navigate":
+                obs_cond = obs_cond[
+                    min(min_idx + int(dists[min_idx] < args.close_threshold), len(obs_cond) - 1)].unsqueeze(0)
 
             if len(obs_cond.shape) == 2:
                 obs_cond = obs_cond.repeat(args.num_samples, 1)
-                obsgoal_cond = obsgoal_cond.repeat(args.num_samples, 1)
             else:
                 obs_cond = obs_cond.repeat(args.num_samples, 1, 1)
-                obsgoal_cond = obsgoal_cond.repeat(args.num_samples, 1, 1)
 
-            # Exploration
-            output = torch.randn((len(obs_cond), model_params["len_traj_pred"], 2), device=device)
+            noisy_action = torch.randn(
+                (args.num_samples, model_params["len_traj_pred"], 2), device=device)
             traj = torchdiffeq.odeint(
                 lambda t, x: model.forward(
                     "noise_pred_net", sample=x, timestep=t, global_cond=obs_cond
                 ),
-                output,
-                torch.linspace(0, 1, 10, device=device),
-                atol=1e-4,
-                rtol=1e-4,
-                method="euler",
-            )
-            uc_actions = to_numpy(get_action(traj[-1]))
-
-            # Navigation
-            noisy_action = torch.randn(
-                (args.num_samples, model_params["len_traj_pred"], 2), device=device)
-
-            traj = torchdiffeq.odeint(
-                lambda t, x: model.forward("noise_pred_net", sample=x, timestep=t, global_cond=obsgoal_cond),
                 noisy_action,
                 torch.linspace(0, 1, k_steps, device=device),
                 atol=1e-4,
                 rtol=1e-4,
                 method="euler",
             )  # torch.Size([k_steps, 8, 8, 2])
-            gc_actions = to_numpy(get_action(traj[-1]))  # [8, 8, 2]
-
+            actions = to_numpy(get_action(traj[-1]))  # [8, 8, 2]
             # sampled_actions_msg = Float32MultiArray()
-            message_data = np.concatenate((np.array([0]), gc_actions.flatten()))
+            message_data = np.concatenate((np.array([0]), actions.flatten()))
             # sampled_actions_msg.data = message_data.tolist()
             # sampled_actions_pub.publish(sampled_actions_msg)
             # print("sampled_actions_msg", message_data)
-            current_action = gc_actions[0]
+            current_action = actions[0]
             chosen_waypoint = current_action[args.waypoint]
 
             if args.steer:
-                # Reward model
-                rm_ckpt_path = "./weights/epoch_029.pt"
-                rm_config_path = "/home/jim/Projects/prune/config/config_point_based.yaml"
+                pruned_actions = prune_distance(actions, distance_cutoff, 8)
                 image_tensor = torch.from_numpy(np.array(context_queue[-1])).permute(2, 0, 1).contiguous()  # (3, H, W)
-                points_tensor = torch.from_numpy(gc_actions)  # (M, K, 2)
-                runner = RewardInferenceRunner(checkpoint_path=rm_ckpt_path, config_path=rm_config_path, verbose=True)
-                rewards = runner.predict_rewards(image_tensor=image_tensor, points_tensor=points_tensor)
-                print(rewards)
+                points_tensor = torch.from_numpy(pruned_actions)  # (M, K, 2)
+                rewards = reward_runner.predict_rewards(image_tensor=image_tensor, points_tensor=points_tensor)
                 best_action = torch.argmax(rewards).item()
                 print("Predicted rewards:", rewards, "best reward action(red) :", best_action)
+                # different distrance metric to make sure selected action does not veer too far:
+                eval_dict = {}
+                for idx, action in enumerate(pruned_actions):
+                    eval_dict[idx] = {}
+                    eval_dict[idx]["reward"] = rewards[idx].item()
+                    eval_dict[idx]["frdist"]= frdist(action, pruned_actions[0])
+                    eval_dict[idx]["dtw"] =  dtw_ndim.distance(action, pruned_actions[0])
 
             proc_time = time.time() - start_time
             mean_proc_time = proc_time / noisy_action.shape[0]
-            print("Mean Processing Time UC", mean_proc_time)
-            print("Processing Time UC", proc_time)
+            print(f"Processing Time {proc_time:.4f} Mean Processing Time {mean_proc_time:.4f}")
 
         # plot distribution:
         fig.clf()
@@ -251,27 +296,28 @@ def main(config: dict) -> None:
         ax11 = fig.add_subplot(gs[:, 1:])
 
         fig.suptitle(f"trajectory visualization with {args.model} | iteration {nav_idx}")
-        uc_actions = list(uc_actions)
-        gc_actions = list(gc_actions)
-        action_label = gc_actions[0]
-        traj_list = np.concatenate(
-            [
-                uc_actions,
-                gc_actions,
-                action_label[None],
-            ],
-            axis=0,
-        )  # [17,8,2]
-        traj_colors = (
-                ["red"] * len(uc_actions) + ["green"] * len(gc_actions) + ["magenta"]
-        )
-        mock_goal_pos = np.array([10, 0])
-        traj_alphas = [0.1] * (len(uc_actions) + len(gc_actions)) + [1.0]
-        point_list = [np.array([0, 0]), torch.Tensor(mock_goal_pos)]
+        actions = list(actions)
+        traj_list = np.concatenate([actions], axis=0, )
+        traj_list = traj_list[:, :, ::-1] # flip y-x for visualization purposes
+        traj_list[:, :, 0] = -traj_list[:, :, 0] # flip x about 0 for visualization purposes
+        traj_colors = ["blue"] + ["green"] * (len(actions)-1)
+        traj_alphas = [0.75] + [0.1] * (len(actions)-1)
+        if rewards is not None:
+            new_traj_list = np.concatenate([pruned_actions], axis=0, )
+            new_traj_list = new_traj_list[:, :, ::-1]  # flip y-x for visualization purposes
+            new_traj_list[:, :, 0] = -new_traj_list[:, :, 0]  # flip x about 0 for visualization purposes
+            traj_list = np.concatenate((traj_list, new_traj_list), axis=0, )
+            new_colors = ["green"] * (len(pruned_actions))
+            traj_colors[best_action] = "red"
+            new_colors[best_action] = "red"
+            traj_colors += new_colors
+            traj_alphas += [0.5] * len(pruned_actions)
+
+        point_list = [np.array([0, 0])]
         point_colors = ["green", "red"]
         point_alphas = [1.0, 1.0]
         plot_trajs_and_points(
-            ax=ax00,
+            ax=ax01,
             list_trajs=traj_list,
             list_points=point_list,
             traj_colors=traj_colors,
@@ -283,45 +329,44 @@ def main(config: dict) -> None:
             point_alphas=point_alphas,
         )
         obs_image = np.array(context_queue[-1])  # not sure which img is the best one to show...
-        display_goal_image = np.array(topomap[goal_node])
+        display_goal_image = np.array(topomap[closest_node])
         # obs_image = np.moveaxis(obs_image, 0, -1)
         # goal_image = np.moveaxis(goal_image, 0, -1)
-
         if args.steer:
-            overlay_img = overlay_path(np.array(gc_actions), obs_image, cam_matrix, T_cam_from_base, color_dict['GREEN'],
-                                       rewards=rewards)
+            overlay_img = overlay_path(np.array(pruned_actions), obs_image, cam_matrix, T_cam_from_base, color_dict['GREEN'],
+                                       metrics=eval_dict)
         else:
-            overlay_img = overlay_path(np.array(gc_actions), obs_image, cam_matrix, T_cam_from_base, color_dict['GREEN'])
+            overlay_img = overlay_path(np.array(actions), obs_image, cam_matrix, T_cam_from_base, color_dict['GREEN'])
         if overlay_img is not None:
             ax11.imshow(overlay_img)
         else:
             ax11.imshow(obs_image)
-        ax00.set_title("action predictions \n green goal, red explore, magenta best_path")
+
+        ax00.imshow(display_goal_image)
+        ax00.set_title(f"intermediate goal node {closest_node}")
+        ax01.set_title("action predictions")
         ax11.set_title("observation, blue best path")
 
-        ax01.imshow(display_goal_image)
-        ax01.set_title("goal")
         fig.canvas.draw()
         fig.canvas.flush_events()
+        image_path = os.path.join(cur_exp_im_dir, f"navigation_{nav_idx:04d}.png")
+        fig.savefig(image_path, dpi=args.video_dpi, bbox_inches="tight")
         video_writer.grab_frame()
-        plt.pause(0.5)
+        # plt.pause(0.5)
 
         # waypoint_msg = Float32MultiArray()
         waypoint_msg = chosen_waypoint.flatten().tolist()
         # waypoint_msg.data = chosen_waypoint.flatten().tolist()
         # waypoint_pub.publish(waypoint_msg)
-        print("waypoint message", waypoint_msg)
+        # print("waypoint message", waypoint_msg)
 
         print(f"CHOSEN WAYPOINT: {chosen_waypoint}")
 
         reached_goal = closest_node == goal_node
-        # goal_reached_msg = Bool()
-        # goal_reached_msg.data = bool(reached_goal)
-        # goal_pub.publish(goal_reached_msg)
-        print("goal reached message", reached_goal)
 
         if reached_goal:
-            print("Reached goal; continuing until topomap images are exhausted.")
+            print("Reached goal; saving and exiting.")
+            break
 
     print(f"Finished {nav_idx + 1} navigation iterations.")
     video_writer.finish()
@@ -392,7 +437,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--radius",
         "-r",
-        default=4,
+        default=10,
         type=int,
         help="temporal number of locobal nodes to look at in the topopmap for localization",
     )
@@ -412,6 +457,11 @@ if __name__ == "__main__":
     )
     parser.add_argument("-robo", "--robot", type=str, help="Robot Name",
                         default="ghost")
+    parser.add_argument(
+        "--mode",
+        default="navigate",
+        help="navigate or explore"
+    )
     parser.add_argument(
         "--steer",
         action="store_true",

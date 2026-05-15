@@ -77,4 +77,5 @@ def plot_trajs_and_points(
     if traj_labels is not None or point_labels is not None:
         ax.legend()
         ax.legend(bbox_to_anchor=(0.0, -0.5), loc="upper left", ncol=2)
-    ax.set_aspect("equal", "box")
+    ax.set_xlim(-1.5, 1.5)
+    # ax.set_aspect("equal", "box")

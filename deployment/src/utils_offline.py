@@ -119,7 +119,7 @@ def clip_angle(theta) -> float:
 def overlay_path(pts_cur: np.ndarray, img: Optional[np.ndarray] = None, cam_matrix: Optional[np.ndarray] = None,
                  T_cam_from_base: Optional[np.ndarray] = None,
                  path_color=(0, 0, 255), policy_color= RGB_color_dict['BLUE'], steer_color=RGB_color_dict['RED'],
-                 rewards=None):
+                 metrics=None):
     if pts_cur.size == 0:
         print("pts_cur.size is zero...")
         return None
@@ -140,6 +140,26 @@ def overlay_path(pts_cur: np.ndarray, img: Optional[np.ndarray] = None, cam_matr
     else:
         print("error, unable to process pts_cur dimension", pts_cur.shape)
         return None
+    metric_labels = {}
+    if metrics is not None:
+        reward_values = []
+        for i in range(n_trajectories):
+            metric = metrics.get(i, metrics.get(str(i), None))
+            if metric is None:
+                reward_values.append(np.nan)
+                continue
+            reward_values.append(metric.get("reward", np.nan))
+
+            label_lines = [f"{i}"]
+            if "reward" in metric:
+                label_lines.append(f"rew {metric['reward']:.2f}")
+            if "frdist" in metric:
+                label_lines.append(f"frd {metric['frdist']:.2f}")
+            if "dtw" in metric:
+                label_lines.append(f"dtw {metric['dtw']:.2f}")
+            metric_labels[i] = label_lines
+        rewards = np.asarray(reward_values, dtype=np.float32)
+
     if rewards is not None:
         if torch.is_tensor(rewards):
             rewards = rewards.detach().cpu().numpy()
@@ -184,10 +204,10 @@ def overlay_path(pts_cur: np.ndarray, img: Optional[np.ndarray] = None, cam_matr
             for pt in pts_pix:
                 cv2.circle(overlay, tuple(pt), radius=3, color=my_color, thickness=-1)
         if rewards is not None:
-            label = f"{i}:{float(rewards[i]):.2f}"
+            label_lines = metric_labels.get(i, [f"{i}: {float(rewards[i]):.2f}"])
             label_anchor = pts_pix[-1]
             reward_labels.append({
-                "label": label,
+                "label_lines": label_lines,
                 "anchor": label_anchor,
                 "color": my_color,
                 "traj_idx": i,
@@ -199,16 +219,23 @@ def overlay_path(pts_cur: np.ndarray, img: Optional[np.ndarray] = None, cam_matr
     if reward_labels:
         trajectory_y_values = [item["anchor"][1] for item in reward_labels]
         font = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = 0.65
+        font_scale = 0.55
         thickness = 1
         pad = 4
         gap = 6
         bg_alpha = 0.55
-        text_w = 80
-        text_h = 15
-        baseline = text_h
+        text_sizes = [
+            cv2.getTextSize(line, font, font_scale, thickness)
+            for item in reward_labels
+            for line in item["label_lines"]
+        ]
+        text_w = max((size[0][0] for size in text_sizes), default=80)
+        text_h = max((size[0][1] for size in text_sizes), default=15)
+        baseline = max((size[1] for size in text_sizes), default=5)
+        line_gap = 4
+        max_lines = max((len(item["label_lines"]) for item in reward_labels), default=1)
         box_w = text_w + 2 * pad
-        box_h = text_h + baseline + 2 * pad
+        box_h = max_lines * text_h + (max_lines - 1) * line_gap + baseline + 2 * pad
         box_y_gap = 90
 
         top_y = int(min(trajectory_y_values)) if trajectory_y_values else 0
@@ -220,10 +247,9 @@ def overlay_path(pts_cur: np.ndarray, img: Optional[np.ndarray] = None, cam_matr
         current_x = int(np.clip(leftmost_anchor_x - box_w // 2, 0, max_start_x))
 
         for idx, item in enumerate(reward_labels):
-            label, anchor, color = item['label'], item['anchor'], item['color']
+            label_lines, anchor, color = item['label_lines'], item['anchor'], item['color']
             x = current_x
             best_box = (x, box_top, x + box_w, box_top + box_h)
-            best_origin = (x + pad, box_top + pad + text_h)
             current_x = best_box[2] + gap
 
             anchor_xy = (int(anchor[0]), int(anchor[1]))
@@ -235,7 +261,9 @@ def overlay_path(pts_cur: np.ndarray, img: Optional[np.ndarray] = None, cam_matr
             black_fill = np.zeros_like(box_roi)
             cv2.addWeighted(black_fill, bg_alpha, box_roi, 1 - bg_alpha, 0, dst=box_roi)
             cv2.rectangle(overlay, (best_box[0], best_box[1]), (best_box[2], best_box[3]), color, thickness=1)
-            cv2.putText(overlay, label, best_origin, font, font_scale, (255, 255, 255), thickness, cv2.LINE_AA)
+            for line_idx, line in enumerate(label_lines):
+                line_y = box_top + pad + text_h + line_idx * (text_h + line_gap)
+                cv2.putText(overlay, line, (x + pad, line_y), font, font_scale, (255, 255, 255), thickness, cv2.LINE_AA)
 
     return overlay
 
