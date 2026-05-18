@@ -81,8 +81,11 @@ class NavigationNode(Node):
         FLIP_ANG_VEL = np.pi / 4
 
         # reward model
-        rm_ckpt_path = "./weights/epoch_029.pt"
-        rm_config_path = "./deployment/config/config_point_based.yaml"
+        # rm_ckpt_path = "../../weights/epoch_029.pt"
+        rm_ckpt_path = "../../weights/model_150_epoch_34.pth"
+        # rm_ckpt_path = "../../weights/model_151_epoch_22.pth"
+        # rm_config_path = "/home/jim/Projects/prune/config/config_point_based.yaml"
+        rm_config_path = "/home/jim/Projects/prune/config/setting.yaml"
         if args.steer:
             self.reward_runner = RewardInferenceRunner(checkpoint_path=rm_ckpt_path, config_path=rm_config_path, verbose=True)
             print("\n!! steering based on reward model...")
