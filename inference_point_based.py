@@ -32,7 +32,6 @@ class SinusoidalPositionalEncoding(nn.Module):
             raise ValueError(f"Sequence length {K} exceeds max_len {self.pe.shape[1]} for sinusoidal encoding.")
         return x + self.pe[:, :K, :].to(dtype=x.dtype)
 
-
 class PointProjector(nn.Module):
     def __init__(self, d_model:int = 256):
         super().__init__()
@@ -404,6 +403,16 @@ def build_demo_inputs(
     return image_tensor, points_tensor
 
 
+def load_config(config_path: str) -> dict[str, Any]:
+    path = Path(config_path)
+    with path.open("r") as handle:
+        return yaml.load(handle, Loader=yaml.SafeLoader)
+
+
+def select_device() -> torch.device:
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
 class RewardInferenceRunner:
     def __init__(
         self,
@@ -417,19 +426,10 @@ class RewardInferenceRunner:
             config_path=config_path,
             verbose=verbose
         )
-        
-
-    def _load_config(self, config_path: str) -> dict[str, Any]:
-        path = Path(config_path)
-        with path.open("r") as handle:
-            return yaml.load(handle, Loader=yaml.SafeLoader)
-        
-    def _select_device(self) -> torch.device:
-        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     def load_model(self, checkpoint_path: str,  config_path: str, verbose: bool = False) -> RewardModelPointBased:
-        config = self._load_config(config_path)
-        device = self._select_device()
+        config = load_config(config_path)
+        device = select_device()
         checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
         state_dict = checkpoint["model_state_dict"] if "model_state_dict" in checkpoint else checkpoint
 

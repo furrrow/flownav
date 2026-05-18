@@ -11,7 +11,6 @@ from matplotlib.gridspec import GridSpec
 matplotlib.use("TkAgg")
 import yaml
 
-import pickle
 from PIL import Image as PILImage
 import argparse
 import torchdiffeq
@@ -24,7 +23,7 @@ from deployment.src.utils_offline import (to_numpy, transform_images, load_model
 from deployment.src.utils_offline import RGB_color_dict as color_dict
 from inference_point_based import RewardInferenceRunner
 from frechetdist import frdist
-from dtaidistance import dtw, dtw_ndim
+from dtaidistance import dtw_ndim
 """
 offline_inference.py
 custom inference script to test out flownav,
@@ -108,10 +107,21 @@ def main(config: dict) -> None:
     exp_dir = args.exp_dir
     os.makedirs(exp_dir, exist_ok=True)
 
+    if args.steer:
+        # Reward model
+        # rm_ckpt_path = "./weights/epoch_029.pt"
+        rm_ckpt_path = "../../weights/model_150_epoch_34.pth"
+        # rm_ckpt_path = "../../weights/model_151_epoch_22.pth"
+        # rm_config_path = "/home/jim/Projects/prune/config/config_point_based.yaml"
+        rm_config_path = "/home/jim/Projects/prune/config/setting.yaml"
+        reward_runner = RewardInferenceRunner(checkpoint_path=rm_ckpt_path, config_path=rm_config_path, verbose=True)
+
     k_steps = args.k_steps
-    distance_cutoff = 4.5 # won't consider paths beyond this distance when doing steering
+    distance_cutoff = 5 # won't consider paths beyond this distance when doing steering
     ckpt_path = Path(args.ckpt)
     cur_exp_dir = f"{exp_dir}/{args.model}_{ckpt_path.name}_{args.dir}_{args.goal_node}_{args.k_steps}_{distance_cutoff}"
+    if args.steer:
+        cur_exp_dir = f"{exp_dir}/{args.model}_{Path(rm_ckpt_path).name}_{args.dir}_{args.goal_node}_{args.k_steps}_{distance_cutoff}"
     os.makedirs(cur_exp_dir, exist_ok=True)
 
     cur_exp_im_dir = f"{cur_exp_dir}/images"
@@ -138,11 +148,6 @@ def main(config: dict) -> None:
     else:
         mode = "explore"
 
-    if args.steer:
-        # Reward model
-        rm_ckpt_path = "./weights/epoch_029.pt"
-        rm_config_path = "/home/jim/Projects/prune/config/config_point_based.yaml"
-        reward_runner = RewardInferenceRunner(checkpoint_path=rm_ckpt_path, config_path=rm_config_path, verbose=True)
     # load model parameters
     with open(MODEL_CONFIG_PATH, "r") as f:
         model_paths = yaml.safe_load(f)
@@ -164,7 +169,6 @@ def main(config: dict) -> None:
     )
     model = model.to(device)
     model.eval()
-    rewards = None
     # load topomap
     topomap_filenames = sorted(os.listdir(os.path.join(
         TOPOMAP_IMAGES_DIR, args.dir)), key=lambda x: int(x.split(".")[0]))
@@ -261,11 +265,6 @@ def main(config: dict) -> None:
                 method="euler",
             )  # torch.Size([k_steps, 8, 8, 2])
             actions = to_numpy(get_action(traj[-1]))  # [8, 8, 2]
-            # sampled_actions_msg = Float32MultiArray()
-            message_data = np.concatenate((np.array([0]), actions.flatten()))
-            # sampled_actions_msg.data = message_data.tolist()
-            # sampled_actions_pub.publish(sampled_actions_msg)
-            # print("sampled_actions_msg", message_data)
             current_action = actions[0]
             chosen_waypoint = current_action[args.waypoint]
 
@@ -307,7 +306,7 @@ def main(config: dict) -> None:
             new_traj_list = new_traj_list[:, :, ::-1]  # flip y-x for visualization purposes
             new_traj_list[:, :, 0] = -new_traj_list[:, :, 0]  # flip x about 0 for visualization purposes
             traj_list = np.concatenate((traj_list, new_traj_list), axis=0, )
-            new_colors = ["green"] * (len(pruned_actions))
+            new_colors = ["blue"] + ["green"] * (len(actions)-1)
             traj_colors[best_action] = "red"
             new_colors[best_action] = "red"
             traj_colors += new_colors
@@ -330,8 +329,6 @@ def main(config: dict) -> None:
         )
         obs_image = np.array(context_queue[-1])  # not sure which img is the best one to show...
         display_goal_image = np.array(topomap[closest_node])
-        # obs_image = np.moveaxis(obs_image, 0, -1)
-        # goal_image = np.moveaxis(goal_image, 0, -1)
         if args.steer:
             overlay_img = overlay_path(np.array(pruned_actions), obs_image, cam_matrix, T_cam_from_base, color_dict['GREEN'],
                                        metrics=eval_dict)
@@ -353,12 +350,6 @@ def main(config: dict) -> None:
         fig.savefig(image_path, dpi=args.video_dpi, bbox_inches="tight")
         video_writer.grab_frame()
         # plt.pause(0.5)
-
-        # waypoint_msg = Float32MultiArray()
-        waypoint_msg = chosen_waypoint.flatten().tolist()
-        # waypoint_msg.data = chosen_waypoint.flatten().tolist()
-        # waypoint_pub.publish(waypoint_msg)
-        # print("waypoint message", waypoint_msg)
 
         print(f"CHOSEN WAYPOINT: {chosen_waypoint}")
 
@@ -409,7 +400,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--dir",
         "-topo_dir",
-        default="iribe_corridoor",
+        default="mdday_20260425_110151",
         type=str,
         help="path to topomap images",
     )

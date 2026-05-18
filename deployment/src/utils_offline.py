@@ -160,13 +160,6 @@ def overlay_path(pts_cur: np.ndarray, img: Optional[np.ndarray] = None, cam_matr
             metric_labels[i] = label_lines
         rewards = np.asarray(reward_values, dtype=np.float32)
 
-    if rewards is not None:
-        if torch.is_tensor(rewards):
-            rewards = rewards.detach().cpu().numpy()
-        rewards = np.asarray(rewards).reshape(-1)
-        if rewards.shape[0] != n_trajectories:
-            print(f"warning, rewards length {rewards.shape[0]} does not match trajectories {n_trajectories}; labels disabled")
-            rewards = None
     # Points in base frame -> camera frame -> pixels
     R_cb = T_cam_from_base[:3, :3]
     t_cb = T_cam_from_base[:3, 3]
@@ -195,7 +188,7 @@ def overlay_path(pts_cur: np.ndarray, img: Optional[np.ndarray] = None, cam_matr
         my_color = path_color
         if i == 0:
             my_color = policy_color
-        if rewards is not None:
+        if metrics is not None:
             if i == np.argmax(rewards):
                 my_color = steer_color
         if len(pts_pix) >= 2:
@@ -203,7 +196,7 @@ def overlay_path(pts_cur: np.ndarray, img: Optional[np.ndarray] = None, cam_matr
         else:
             for pt in pts_pix:
                 cv2.circle(overlay, tuple(pt), radius=3, color=my_color, thickness=-1)
-        if rewards is not None:
+        if metrics is not None:
             label_lines = metric_labels.get(i, [f"{i}: {float(rewards[i]):.2f}"])
             label_anchor = pts_pix[-1]
             reward_labels.append({
