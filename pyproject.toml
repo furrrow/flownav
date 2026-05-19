@@ -32,6 +32,8 @@ dependencies = [
     "depth-anything-v2",
     "diffusion-policy",
     "vit-pytorch>=1.18.0",
+    "frechetdist>=0.6",
+    "dtaidistance>=2.4.0",
 ]
 
 [tool.uv.sources]

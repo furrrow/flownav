@@ -13,11 +13,13 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image, CompressedImage
 
-from topic_names import IMAGE_TOPIC
+# from topic_names import IMAGE_TOPIC
 
 TOPOMAP_IMAGES_DIR = "../topomaps/images"
 # IMAGE_TOPIC = '/image_compressed'
-IMAGE_TOPIC = '/camera/camera/color/image_raw/compressed'
+# IMAGE_TOPIC = '/camera/camera/color/image_raw'
+IMAGE_TOPIC = '/argus/ar0234_front_left/image_raw'
+COMPRESSED_IMAGE_TOPIC = f'{IMAGE_TOPIC}/compressed'
 
 def msg_to_pil(msg: Image) -> PILImage.Image:
     img = np.frombuffer(msg.data, dtype=np.uint8).reshape(
@@ -38,10 +40,19 @@ def remove_files_in_dir(dir_path: str):
 
 
 class TopoMapNode(Node):
-    def __init__(self, dir_name: str, dt: float):
+    def __init__(self, dir_name: str, dt: float, cvt_rgb:bool=False, compressed:bool = True):
         super().__init__("create_topomap")
-        self.subscriber_image = self.create_subscription(
-            CompressedImage, IMAGE_TOPIC, self.callback_obs, 10)
+        self.cvt_rgb = cvt_rgb
+        self.compressed = compressed
+        print("compressed:", self.compressed)
+        if self.compressed:
+            print(f"subscribing to {COMPRESSED_IMAGE_TOPIC}")
+            self.subscriber_image = self.create_subscription(
+                CompressedImage, COMPRESSED_IMAGE_TOPIC, self.callback_obs, 10)
+        else:
+            print(f"subscribing to {IMAGE_TOPIC}")
+            self.subscriber_image = self.create_subscription(
+                Image, IMAGE_TOPIC, self.callback_obs, 10)
         self.obs_img = None
         self.topomap_name_dir = os.path.join(TOPOMAP_IMAGES_DIR, dir_name)
         self.dt = dt
@@ -60,9 +71,13 @@ class TopoMapNode(Node):
 
 
     def callback_obs(self, msg: Image):
-        # self.obs_img = msg_to_pil(msg)
-        self.obs_img = self.br.compressed_imgmsg_to_cv2(msg)
-        self.obs_img = PILImage.fromarray(cv2.cvtColor(self.obs_img, cv2.COLOR_BGR2RGB))
+        if self.compressed:
+            self.obs_img = self.br.compressed_imgmsg_to_cv2(msg)
+        else:
+            self.obs_img = self.br.imgmsg_to_cv2(msg)
+        if self.cvt_rgb:
+            self.obs_img = cv2.cvtColor(self.obs_img, cv2.COLOR_BGR2RGB)
+        self.obs_img = PILImage.fromarray(self.obs_img)
 
     def timer_callback(self):
         if self.obs_img is not None:
@@ -80,7 +95,8 @@ class TopoMapNode(Node):
 
 def main(args: argparse.Namespace):
     rclpy.init()
-    node = TopoMapNode(args.dir, args.dt)
+    print(f"dir:{args.dir}, dt {args.dt}, cvt_rgb: {args.cvt_rgb}, compressed: {args.compressed}")
+    node = TopoMapNode(args.dir, args.dt, args.cvt_rgb, args.compressed)
 
     try:
         rclpy.spin(node)
@@ -108,6 +124,18 @@ if __name__ == "__main__":
         default=1.0,
         type=float,
         help=f"time between images sampled from the {IMAGE_TOPIC} topic (default: 1.0)",
+    )
+    parser.add_argument(
+        "--not-cvt-rgb",
+        action="store_false",
+        dest="cvt_rgb",
+        help="do not convert bgr to rgb",
+    )
+    parser.add_argument(
+        "--not-compressed",
+        action="store_false",
+        dest="compressed",
+        help="not using compressed img topic, useful for playing rosbags"
     )
     args = parser.parse_args()
 

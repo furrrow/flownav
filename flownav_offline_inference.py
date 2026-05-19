@@ -77,7 +77,7 @@ def resample_path_2d(path: np.ndarray, k: int) -> np.ndarray:
         out[i] = path[j] * (1 - alpha) + path[j + 1] * alpha
     return out
 
-def prune_distance(points: np.ndarray, cutoff: float, k: int):
+def prune_distance(points: np.ndarray, cutoff: float, n_paths=8, k: int=8):
     """
 
     :param points: trajectories of xy points, (num_trajectories, traj_length, 2)
@@ -90,6 +90,7 @@ def prune_distance(points: np.ndarray, cutoff: float, k: int):
     deltas = paths - first_points
     seg_len = np.linalg.norm(deltas, axis=-1)
     path_check = seg_len > cutoff
+    paths = paths[:n_paths]
     for i, i_path in enumerate(paths):
         if not True in path_check[i]:
             continue
@@ -148,6 +149,12 @@ def main(config: dict) -> None:
     else:
         mode = "explore"
 
+    if args.steer:
+        # Reward model
+        rm_ckpt_path = "./weights/epoch_029.pt"
+        # rm_config_path = "/home/jim/Projects/prune/config/config_point_based.yaml"
+        rm_config_path = "/home/gamma-nav/Documents/Projects/git_repos/prune/policies/flownav/deployment/config/config_point_based.yaml"
+        reward_runner = RewardInferenceRunner(checkpoint_path=rm_ckpt_path, config_path=rm_config_path, verbose=True)
     # load model parameters
     with open(MODEL_CONFIG_PATH, "r") as f:
         model_paths = yaml.safe_load(f)
@@ -400,7 +407,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--dir",
         "-topo_dir",
-        default="mdday_20260425_110151",
+        default="iribe_corridoor",
         type=str,
         help="path to topomap images",
     )

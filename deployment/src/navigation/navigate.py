@@ -30,6 +30,55 @@ from flownav.visualizing.plot import plot_trajs_and_points
 from deployment.src.utils_offline import load_calibration, overlay_path
 from deployment.src.utils_offline import RGB_color_dict as color_dict
 from inference_point_based import RewardInferenceRunner
+from frechetdist import frdist
+from dtaidistance import dtw_ndim
+
+def resample_path_2d(path: np.ndarray, k: int) -> np.ndarray:
+    """
+    Evenly resample a sequence of 2D points to length k using linear interpolation.
+    Expects ``path`` shape (n, 2); returns float32 array shape (k, 2).
+    """
+    if path.size == 0:
+        return np.zeros((k, 2), dtype=np.float32)
+    if len(path) == 1:
+        return np.repeat(path, k, axis=0)
+    deltas = path[1:] - path[:-1]
+    seg_len = np.linalg.norm(deltas, axis=1)
+    cum = np.concatenate([np.array([0.0], dtype=np.float32), np.cumsum(seg_len, dtype=np.float32)])
+    total = cum[-1]
+    if total == 0:
+        return np.repeat(path[:1], k, axis=0)
+
+    target = np.linspace(0.0, float(total), num=k, dtype=np.float32)
+    out = np.empty((k, path.shape[1]), dtype=np.float32)
+    for i, t in enumerate(target):
+        j = np.searchsorted(cum, t, side="right") - 1
+        j = int(np.clip(j, 0, len(seg_len) - 1))
+        t0, t1 = cum[j], cum[j + 1]
+        alpha = 0.0 if t1 == t0 else float((t - t0) / (t1 - t0))
+        out[i] = path[j] * (1 - alpha) + path[j + 1] * alpha
+    return out
+
+def prune_distance(points: np.ndarray, cutoff: float, n_paths=8, k: int=8):
+    """
+
+    :param points: trajectories of xy points, (num_trajectories, traj_length, 2)
+    :param cutoff: a distance measure
+    :return: updated trajectory points
+    """
+    paths = np.array(points, dtype=np.float32) # (8, 8, 2)
+    n_pts, pt_len, _ = paths.shape
+    first_points = np.expand_dims(paths[:, 0, :], 1).repeat(pt_len, axis=1)
+    deltas = paths - first_points
+    seg_len = np.linalg.norm(deltas, axis=-1)
+    path_check = seg_len > cutoff
+    paths = paths[:n_paths]
+    for i, i_path in enumerate(paths):
+        if not True in path_check[i]:
+            continue
+        sub_path = i_path[:np.argmax(path_check[i])]
+        paths[i] = resample_path_2d(sub_path, k)
+    return paths
 
 # Load the model 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -69,6 +118,7 @@ class NavigationNode(Node):
         ROBOT_CONFIG_PATH = "./deployment/config/robot.yaml"
         MODEL_CONFIG_PATH = "./deployment/config/models.yaml"
         CAMERA_MATRIX_DIR = "/workspace/prune/deployment/camera_matrix.json"
+        self.distance_cutoff = 10
         with open(ROBOT_CONFIG_PATH, "r") as f:
             robot_config = yaml.safe_load(f)
         self.rate = robot_config["frame_rate"]
@@ -81,11 +131,11 @@ class NavigationNode(Node):
         FLIP_ANG_VEL = np.pi / 4
 
         # reward model
-        # rm_ckpt_path = "../../weights/epoch_029.pt"
-        rm_ckpt_path = "../../weights/model_150_epoch_34.pth"
+        rm_ckpt_path = "../../weights/epoch_029.pt"
+        # rm_ckpt_path = "../../weights/model_150_epoch_34.pth"
         # rm_ckpt_path = "../../weights/model_151_epoch_22.pth"
-        # rm_config_path = "/home/jim/Projects/prune/config/config_point_based.yaml"
-        rm_config_path = "/home/jim/Projects/prune/config/setting.yaml"
+        rm_config_path = "./deployment/config/config_point_based.yaml"
+        # rm_config_path = "/home/jim/Projects/prune/config/setting.yaml"
         if args.steer:
             self.reward_runner = RewardInferenceRunner(checkpoint_path=rm_ckpt_path, config_path=rm_config_path, verbose=True)
             print("\n!! steering based on reward model...")
@@ -256,23 +306,30 @@ class NavigationNode(Node):
                 sampled_actions_msg.data = message_data.tolist()
                 print("published sampled actions")
                 self.sampled_actions_pub.publish(sampled_actions_msg)
-                gc_actions = list(naction)
+                actions = list(naction)
                 current_img = np.array(self.cur_img)
 
                 if self.steer:
+                    pruned_actions = prune_distance(actions, self.distance_cutoff, 8, 8)
                     image_tensor = torch.from_numpy(current_img).permute(2, 0, 1).contiguous()  # (3, H, W)
                     points_tensor = torch.from_numpy(naction)  # (M, K, 2)
                     rewards = self.reward_runner.predict_rewards(image_tensor=image_tensor, points_tensor=points_tensor)
-                    best_action = torch.argmax(rewards).item()
+                    eval_dict = {}
+                    for idx, action in enumerate(pruned_actions):
+                        eval_dict[idx] = {}
+                        eval_dict[idx]["reward"] = rewards[idx].item()
+                        eval_dict[idx]["frdist"] = frdist(action, pruned_actions[0])
+                        eval_dict[idx]["dtw"] = dtw_ndim.distance(action, pruned_actions[0])
                     # print("Predicted rewards:", rewards, "best reward action(red) :", best_action)
                 inference_time = time.time()
                 print(f"inference time: {inference_time - now}")
 
+
                 if self.steer:
-                    overlay_image = overlay_path(np.array(gc_actions), current_img, self.cam_matrix,
-                                                 self.T_cam_from_base, color_dict['GREEN'], rewards=rewards)
+                    overlay_image = overlay_path(np.array(actions), current_img, self.cam_matrix,
+                                                 self.T_cam_from_base, color_dict['GREEN'], metrics=eval_dict)
                 else:
-                    overlay_image = overlay_path(np.array(gc_actions), current_img, self.cam_matrix,
+                    overlay_image = overlay_path(np.array(actions), current_img, self.cam_matrix,
                                                  self.T_cam_from_base, color_dict['GREEN'])
 
                 if overlay_image is not None:
