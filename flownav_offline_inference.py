@@ -21,7 +21,7 @@ from flownav.visualizing.plot import plot_trajs_and_points
 from deployment.src.utils_offline import (to_numpy, transform_images, load_model,
                                           load_calibration, overlay_path)
 from deployment.src.utils_offline import RGB_color_dict as color_dict
-from inference_point_based import RewardInferenceRunner
+from flownav_inference_point_based import RewardInferenceRunner
 from frechetdist import frdist
 from dtaidistance import dtw_ndim
 """
@@ -229,7 +229,7 @@ def main(config: dict) -> None:
         end = min(closest_node + args.radius + 1, goal_node)
         goal_image = [transform_images(g_img, model_params["image_size"], center_crop=False).to(device) for g_img in
                       topomap[start:end + 1]]
-        goal_image = torch.concat(goal_image, dim=0) # [6, 3, 96, 96]
+        goal_image = torch.concat(goal_image, dim=0)
 
         if mode == "explore":
             obs_cond = model('vision_encoder', obs_img=obs_images.repeat(len(goal_image), 1, 1, 1),
@@ -372,6 +372,17 @@ def main(config: dict) -> None:
     plt.ioff()
     plt.show()
 
+def main(args: argparse.Namespace):
+    rclpy.init()
+    navigation_node = NavigationNode(args)
+
+    try:
+        rclpy.spin(navigation_node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        navigation_node.destroy_node()
+        rclpy.shutdown()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(

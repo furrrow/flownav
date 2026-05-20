@@ -299,3 +299,14 @@ def load_calibration(json_path: str):
 
     dist = None  # explicitly no distortion
     return K, dist, T_base_from_cam
+
+def get_action(diffusion_output, action_stats=ACTION_STATS):
+    # diffusion_output: (B, 2*T+1, 1)
+    # return: (B, T-1)
+    device = diffusion_output.device
+    ndeltas = diffusion_output
+    ndeltas = ndeltas.reshape(ndeltas.shape[0], -1, 2)
+    ndeltas = to_numpy(ndeltas)
+    ndeltas = unnormalize_data(ndeltas, action_stats)
+    actions = np.cumsum(ndeltas, axis=1)
+    return from_numpy(actions).to(device)

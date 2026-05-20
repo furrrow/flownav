@@ -14,7 +14,6 @@ import torchdiffeq
 from pathlib import Path
 import matplotlib.pyplot as plt
 print("cwd:", os.getcwd())
-
 # ROS 2 Imports
 import rclpy
 from rclpy.node import Node
@@ -26,10 +25,9 @@ from rclpy.qos import QoSReliabilityPolicy, QoSHistoryPolicy
 # Custom Imports
 from flownav.training.utils import get_action
 from deployment.src.utils import to_numpy, transform_images, load_model
-from flownav.visualizing.plot import plot_trajs_and_points
 from deployment.src.utils_offline import load_calibration, overlay_path
 from deployment.src.utils_offline import RGB_color_dict as color_dict
-from inference_point_based import RewardInferenceRunner
+from visualnav_inference_point_based import RewardInferenceRunner
 from frechetdist import frdist
 from dtaidistance import dtw_ndim
 
@@ -115,7 +113,7 @@ class NavigationNode(Node):
         # CONSTANTS
         # TOPOMAP_IMAGES_DIR = "/workspace/prune/deployment/topomaps/images"
         TOPOMAP_IMAGES_DIR = "./deployment/topomaps/images"
-        ROBOT_CONFIG_PATH = "./deployment/config/robot.yaml"
+        ROBOT_CONFIG_PATH = "/workspace/prune/deployment/config/robot.yaml"
         MODEL_CONFIG_PATH = "./deployment/config/models.yaml"
         CAMERA_MATRIX_DIR = "/workspace/prune/deployment/camera_matrix.json"
         self.distance_cutoff = 10
@@ -127,8 +125,6 @@ class NavigationNode(Node):
         self.max_w = robot_config["max_w"]
         self.image_resize = (robot_config["img_w"], robot_config["img_h"])  # (1280, 720)
         self.dt = 1 / self.rate
-        EPS = 1e-8
-        FLIP_ANG_VEL = np.pi / 4
 
         # reward model
         rm_ckpt_path = "../../weights/epoch_029.pt"
@@ -187,7 +183,6 @@ class NavigationNode(Node):
                 topomap_img = topomap_img.resize(self.image_resize)
             topomap.append(topomap_img)
 
-        closest_node = 0
         assert -1 <= args.goal_node < len(topomap), "Invalid goal index"
         if args.goal_node == -1:
             goal_node = len(topomap) - 1
@@ -221,7 +216,7 @@ class NavigationNode(Node):
 
         self.model_params = model_params
 
-        self.closest_node = closest_node
+        self.closest_node = 0
         self.goal_node = goal_node
         self.topomap = topomap
         self.br = CvBridge()
